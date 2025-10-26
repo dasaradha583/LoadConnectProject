@@ -1,0 +1,4924 @@
+const express = require('express');
+const cors = require('cors');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const { v4: uuidv4 } = require('uuid');
+const { Sequelize, DataTypes, Op } = require('sequelize');
+const Redis = require('redis');
+const WebSocket = require('ws');
+const http = require('http');
+const path = require('path');
+const GeocodingService = require('./geocoding-service');
+
+const app = express();
+const PORT = process.env.PORT || 3001;
+
+// Load environment variables
+require('dotenv').config();
+
+// JWT Secrets
+const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
+const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'your-super-secret-refresh-key-change-in-production';
+
+// Database connection
+const sequelize = new Sequelize({
+  dialect: 'postgres',
+  host: process.env.DB_HOST || 'localhost',
+  port: process.env.DB_PORT || 5432,
+  database: process.env.DB_NAME || 'load_management',
+  username: process.env.DB_USER || 'postgres',
+  password: process.env.DB_PASSWORD || 'password',
+  logging: (msg) => console.log(`🗄️  PostgreSQL: ${msg}`),
+  pool: {
+    max: 5,
+    min: 0,
+    acquire: 30000,
+    idle: 10000
+  }
+});
+
+// Redis connection
+const redisClient = Redis.createClient({
+  host: process.env.REDIS_HOST || 'localhost',
+  port: process.env.REDIS_PORT || 6379,
+  password: process.env.REDIS_PASSWORD || undefined,
+  retryDelayOnFailover: 100,
+  maxRetriesPerRequest: 3
+});
+
+redisClient.on('connect', () => console.log('🔴 Redis connected'));
+redisClient.on('error', (err) => console.error('🔴 Redis error:', err));
+
+// Connect to Redis
+(async () => {
+  try {
+    await redisClient.connect();
+  } catch (error) {
+    console.error('Failed to connect to Redis:', error);
+  }
+})();
+
+// ===================== OLD MODELS - COMMENTED OUT =====================
+// These are replaced by normalized models from models-updated.js
+// Kept here for reference only
+
+// Define Enums (still used in code)
+const UserType = {
+  DRIVER: 'driver',
+  VENDOR: 'vendor'
+};
+
+const LoadStatus = {
+  POSTED: 'posted',
+  ACCEPTED: 'accepted',
+  PICKED_UP: 'picked_up',
+  IN_PROGRESS: 'in_progress',
+  IN_TRANSIT: 'in_transit',
+  DELIVERED: 'delivered',
+  COMPLETED: 'completed',
+  CANCELLED: 'cancelled'
+};
+
+const LoadPriority = {
+  LOW: 'low',
+  MEDIUM: 'medium',
+  HIGH: 'high',
+  URGENT: 'urgent'
+};
+
+// OLD User and Load models commented out - using normalized models instead
+/*
+const User = sequelize.define('User', {
+  // ... old model definition ...
+});
+
+const Load = sequelize.define('Load', {
+  // ... old model definition ...
+});
+
+Load.belongsTo(User, { foreignKey: 'vendorId', as: 'vendor' });
+Load.belongsTo(User, { foreignKey: 'driverId', as: 'driver' });
+User.hasMany(Load, { foreignKey: 'vendorId', as: 'postedLoads' });
+User.hasMany(Load, { foreignKey: 'driverId', as: 'assignedLoads' });
+*/
+
+// ===================== OLD RATING MODEL - COMMENTED OUT =====================
+// Replaced by normalized models from models-updated.js
+
+/*
+const Rating = sequelize.define('Rating', {
+  id: {
+    type: DataTypes.UUID,
+    defaultValue: DataTypes.UUIDV4,
+    primaryKey: true
+  },
+  loadId: {
+    type: DataTypes.UUID,
+    allowNull: false,
+    field: 'load_id'
+  },
+  vendorId: {
+    type: DataTypes.UUID,
+    allowNull: false,
+    field: 'vendor_id'
+  },
+  driverId: {
+    type: DataTypes.UUID,
+    allowNull: false,
+    field: 'driver_id'
+  },
+  rating: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    validate: {
+      min: 1,
+      max: 5
+    }
+  },
+  review: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
+  ratingAspects: {
+    type: DataTypes.JSONB,
+    allowNull: true,
+    comment: 'Individual aspect ratings like punctuality, behavior, etc.'
+  }
+}, {
+  tableName: 'ratings',
+  underscored: true,
+  timestamps: true
+});
+
+// Rating Associations
+Rating.belongsTo(Load, { foreignKey: 'loadId', as: 'load' });
+Rating.belongsTo(User, { foreignKey: 'vendorId', as: 'vendor' });
+Rating.belongsTo(User, { foreignKey: 'driverId', as: 'driver' });
+
+Load.hasOne(Rating, { foreignKey: 'loadId', as: 'rating' });
+User.hasMany(Rating, { foreignKey: 'driverId', as: 'receivedRatings' });
+User.hasMany(Rating, { foreignKey: 'vendorId', as: 'givenRatings' });
+*/
+
+// ===================== OLD NORMALIZED MODELS - COMMENTED OUT =====================
+// These are now loaded from models-updated.js which has the full normalized schema with admin support
+
+/*
+// Normalized Driver Model
+const Driver = sequelize.define('Driver', {
+  id: {
+    type: DataTypes.UUID,
+    defaultValue: DataTypes.UUIDV4,
+    primaryKey: true
+  },
+  userId: {
+    type: DataTypes.UUID,
+    allowNull: false,
+    field: 'user_id'
+  },
+  licenseNumber: {
+    type: DataTypes.STRING(50),
+    allowNull: false,
+    field: 'license_number'
+  },
+  licensePhotoUrl: {
+    type: DataTypes.STRING(500),
+    field: 'license_photo_url'
+  },
+  vehicleType: {
+    type: DataTypes.STRING(50),
+    allowNull: false,
+    field: 'vehicle_type'
+  },
+  vehicleCapacity: {
+    type: DataTypes.DECIMAL(8, 2),
+    allowNull: false,
+    field: 'vehicle_capacity'
+  },
+  vehicleNumber: {
+    type: DataTypes.STRING(20),
+    allowNull: false,
+    field: 'vehicle_number'
+  },
+  isAvailable: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: true,
+    field: 'is_available'
+  },
+  rating: {
+    type: DataTypes.DECIMAL(3, 2),
+    defaultValue: 5.00
+  },
+  totalTrips: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0,
+    field: 'total_trips'
+  },
+  completedTrips: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0,
+    field: 'completed_trips'
+  },
+  totalEarnings: {
+    type: DataTypes.DECIMAL(12, 2),
+    defaultValue: 0,
+    field: 'total_earnings'
+  }
+}, {
+  tableName: 'drivers',
+  underscored: true
+});
+
+// Normalized Vendor Model
+const Vendor = sequelize.define('Vendor', {
+  id: {
+    type: DataTypes.UUID,
+    defaultValue: DataTypes.UUIDV4,
+    primaryKey: true
+  },
+  userId: {
+    type: DataTypes.UUID,
+    allowNull: false,
+    field: 'user_id'
+  },
+  businessName: {
+    type: DataTypes.STRING(100),
+    allowNull: false,
+    field: 'business_name'
+  },
+  // businessId removed - not in normalized schema
+  gstNumber: {
+    type: DataTypes.STRING(20),
+    field: 'gst_number'
+  },
+  rating: {
+    type: DataTypes.DECIMAL(3, 2),
+    defaultValue: 5.00
+  },
+  totalOrders: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0,
+    field: 'total_orders'
+  }
+}, {
+  tableName: 'vendors',
+  underscored: true
+});
+*/
+
+// Normalized Location Model (still used for tracking)
+const Location = sequelize.define('Location', {
+  id: {
+    type: DataTypes.UUID,
+    defaultValue: DataTypes.UUIDV4,
+    primaryKey: true
+  },
+  latitude: {
+    type: DataTypes.DECIMAL(10, 8),
+    allowNull: false
+  },
+  longitude: {
+    type: DataTypes.DECIMAL(11, 8),
+    allowNull: false
+  },
+  address: {
+    type: DataTypes.TEXT,
+    allowNull: false
+  },
+  city: DataTypes.STRING(100),
+  state: DataTypes.STRING(100),
+  country: {
+    type: DataTypes.STRING(100),
+    defaultValue: 'India'
+  },
+  postalCode: {
+    type: DataTypes.STRING(20),
+    field: 'postal_code'
+  },
+  contactName: {
+    type: DataTypes.STRING(100),
+    field: 'contact_name'
+  },
+  contactPhone: {
+    type: DataTypes.STRING(15),
+    field: 'contact_phone'
+  },
+  locationType: {
+    type: DataTypes.STRING(20), // Use string instead of enum for now
+    field: 'location_type'
+  }
+}, {
+  tableName: 'locations',
+  underscored: true
+});
+
+// Driver Current Location (Real-time)
+const DriverLocation = sequelize.define('DriverLocation', {
+  id: {
+    type: DataTypes.UUID,
+    defaultValue: DataTypes.UUIDV4,
+    primaryKey: true
+  },
+  driverId: {
+    type: DataTypes.UUID,
+    allowNull: false,
+    field: 'driverId' // Keep existing field name
+  },
+  latitude: {
+    type: DataTypes.DECIMAL(10, 8),
+    allowNull: false
+  },
+  longitude: {
+    type: DataTypes.DECIMAL(11, 8), allowNull: false
+  },
+  accuracy: DataTypes.DECIMAL(8, 2),
+  speed: DataTypes.DECIMAL(8, 2),
+  heading: DataTypes.DECIMAL(5, 2),
+  address: DataTypes.TEXT,
+  isAvailable: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: true
+  },
+  lastUpdated: {
+    type: DataTypes.DATE,
+    allowNull: false
+  }
+}, {
+  tableName: 'driver_locations'
+});
+
+// Location History (Route tracking)
+const LocationHistory = sequelize.define('LocationHistory', {
+  id: {
+    type: DataTypes.UUID,
+    defaultValue: DataTypes.UUIDV4,
+    primaryKey: true
+  },
+  driverId: {
+    type: DataTypes.UUID,
+    allowNull: false,
+    field: 'driver_id'
+  },
+  loadId: {
+    type: DataTypes.UUID,
+    field: 'load_id'
+  },
+  latitude: {
+    type: DataTypes.DECIMAL(10, 8),
+    allowNull: false
+  },
+  longitude: {
+    type: DataTypes.DECIMAL(11, 8),
+    allowNull: false
+  },
+  accuracy: DataTypes.DECIMAL(8, 2),
+  speed: DataTypes.DECIMAL(8, 2),
+  heading: DataTypes.DECIMAL(5, 2),
+  timestamp: {
+    type: DataTypes.DATE,
+    allowNull: false
+  },
+  eventType: {
+    type: DataTypes.STRING(20), // Use string instead of enum for now
+    field: 'event_type'
+  },
+  notes: DataTypes.TEXT
+}, {
+  tableName: 'location_history',
+  underscored: true
+});
+
+// NOTE: Model associations are set up after normalizedModels initialization
+// See line ~575 where User, Load, Rating are assigned from normalizedModels
+
+// Redis Helper Class
+class RedisLogger {
+  static async set(key, value, expirationSeconds) {
+    try {
+      const stringValue = typeof value === 'object' ? JSON.stringify(value) : value;
+      if (expirationSeconds) {
+        await redisClient.setEx(key, expirationSeconds, stringValue);
+      } else {
+        await redisClient.set(key, stringValue);
+      }
+      console.log(`🔴 Redis SET: ${key}`);
+    } catch (error) {
+      console.error('Redis SET error:', error);
+    }
+  }
+
+  static async get(key) {
+    try {
+      const result = await redisClient.get(key);
+      console.log(`🔴 Redis GET: ${key} = ${result ? 'found' : 'null'}`);
+      return result;
+    } catch (error) {
+      console.error('Redis GET error:', error);
+      return null;
+    }
+  }
+
+  static async del(key) {
+    try {
+      const result = await redisClient.del(key);
+      console.log(`🔴 Redis DEL: ${key}`);
+      return result;
+    } catch (error) {
+      console.error('Redis DEL error:', error);
+      return 0;
+    }
+  }
+
+  static async sAdd(key, value) {
+    try {
+      const result = await redisClient.sAdd(key, value);
+      console.log(`🔴 Redis SADD: ${key} + ${value}`);
+      return result;
+    } catch (error) {
+      console.error('Redis SADD error:', error);
+      return 0;
+    }
+  }
+
+  static async sRem(key, value) {
+    try {
+      const result = await redisClient.sRem(key, value);
+      console.log(`🔴 Redis SREM: ${key} - ${value}`);
+      return result;
+    } catch (error) {
+      console.error('Redis SREM error:', error);
+      return 0;
+    }
+  }
+}
+
+// Middleware
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  credentials: false
+}));
+
+app.use(express.json());
+
+// Serve uploaded files
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Enhanced logging middleware
+app.use((req, res, next) => {
+  const timestamp = new Date().toISOString();
+  console.log('\n' + '🟢'.repeat(80));
+  console.log(`🚀 HTTP REQUEST [${timestamp}]`);
+  console.log(`📝 ${req.method} ${req.path}`);
+  console.log(`📤 Headers:`, {
+    'content-type': req.headers['content-type'],
+    'authorization': req.headers['authorization'] ? 'Bearer ***' : 'None',
+    'user-agent': req.headers['user-agent']?.substring(0, 50) + '...'
+  });
+  console.log(`📦 Body:`, req.body);
+  console.log(`🔍 Query:`, req.query);
+  console.log(`📍 Params:`, req.params);
+  console.log('🟢'.repeat(80) + '\n');
+  next();
+});
+
+// Auth middleware
+const authenticateToken = async (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({
+      success: false,
+      message: 'Access token required'
+    });
+  }
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    
+    // Check if token is blacklisted
+    const isBlacklisted = await RedisLogger.get(`blacklisted_token:${token}`);
+    if (isBlacklisted) {
+      return res.status(401).json({
+        success: false,
+        message: 'Token has been revoked'
+      });
+    }
+
+    // Get fresh user data from database
+    const user = await User.findByPk(decoded.userId);
+    if (!user || !user.isActive) {
+      return res.status(401).json({
+        success: false,
+        message: 'User not found or inactive'
+      });
+    }
+
+    req.user = decoded;
+    req.userEntity = user;
+    next();
+  } catch (error) {
+    return res.status(403).json({
+      success: false,
+      message: 'Invalid or expired token'
+    });
+  }
+};
+
+// Utility functions
+const generateTokens = async (userId, userType) => {
+  const payload = { userId, userType };
+  const accessToken = jwt.sign(payload, JWT_SECRET, { expiresIn: '24h' });
+  const refreshToken = jwt.sign(payload, JWT_REFRESH_SECRET, { expiresIn: '7d' });
+  
+  // Store tokens in Redis
+  await RedisLogger.set(`access_token:${userId}`, accessToken, 24 * 60 * 60);
+  await RedisLogger.set(`refresh_token:${userId}`, refreshToken, 7 * 24 * 60 * 60);
+  
+  return { accessToken, refreshToken };
+};
+
+const generateOTP = () => {
+  return process.env.NODE_ENV === 'production' 
+    ? Math.floor(100000 + Math.random() * 900000).toString()
+    : '123456';
+};
+
+// ===================== ADMIN SYSTEM INTEGRATION =====================
+
+// Import normalized models and admin routes
+const { defineModels, UserType: UserTypeEnum, ApprovalStatus, DocumentType } = require('./models-updated');
+const { createAdminRoutes } = require('./admin-routes');
+const { createRegistrationRoutes } = require('./registration-routes');
+
+// Initialize normalized models
+const normalizedModels = defineModels(sequelize);
+
+// Use normalized models for backward compatibility with existing code
+const User = normalizedModels.User;
+const Driver = normalizedModels.Driver;
+const Vendor = normalizedModels.Vendor;
+const Admin = normalizedModels.Admin;
+
+// Define Load model (not in normalized models yet)
+const Load = sequelize.define('Load', {
+  id: {
+    type: DataTypes.UUID,
+    defaultValue: DataTypes.UUIDV4,
+    primaryKey: true
+  },
+  vendorId: {
+    type: DataTypes.UUID,
+    allowNull: false,
+    field: 'vendor_id'
+  },
+  driverId: {
+    type: DataTypes.UUID,
+    allowNull: true,
+    field: 'driver_id'
+  },
+  weight: {
+    type: DataTypes.DECIMAL(8, 2),
+    allowNull: false
+  },
+  description: {
+    type: DataTypes.TEXT,
+    allowNull: false
+  },
+  vehicleTypeRequired: {
+    type: DataTypes.STRING(50),
+    allowNull: false,
+    field: 'vehicle_type_required'
+  },
+  priority: {
+    type: DataTypes.STRING(20),
+    defaultValue: 'medium'
+  },
+  status: {
+    type: DataTypes.STRING(20),
+    defaultValue: 'posted'
+  },
+  pickupLat: {
+    type: DataTypes.DECIMAL(10, 8),
+    allowNull: false,
+    field: 'pickup_lat'
+  },
+  pickupLng: {
+    type: DataTypes.DECIMAL(11, 8),
+    allowNull: false,
+    field: 'pickup_lng'
+  },
+  pickupAddress: {
+    type: DataTypes.TEXT,
+    allowNull: false,
+    field: 'pickup_address'
+  },
+  pickupCity: {
+    type: DataTypes.STRING(100),
+    field: 'pickup_city'
+  },
+  pickupState: {
+    type: DataTypes.STRING(100),
+    field: 'pickup_state'
+  },
+  pickupPostalCode: {
+    type: DataTypes.STRING(20),
+    field: 'pickup_postal_code'
+  },
+  pickupDate: {
+    type: DataTypes.DATE,
+    allowNull: false,
+    field: 'pickup_date'
+  },
+  pickupContactName: {
+    type: DataTypes.STRING(100),
+    field: 'pickup_contact_name'
+  },
+  pickupContactPhone: {
+    type: DataTypes.STRING(15),
+    field: 'pickup_contact_phone'
+  },
+  dropLat: {
+    type: DataTypes.DECIMAL(10, 8),
+    allowNull: false,
+    field: 'drop_lat'
+  },
+  dropLng: {
+    type: DataTypes.DECIMAL(11, 8),
+    allowNull: false,
+    field: 'drop_lng'
+  },
+  dropAddress: {
+    type: DataTypes.TEXT,
+    allowNull: false,
+    field: 'drop_address'
+  },
+  dropCity: {
+    type: DataTypes.STRING(100),
+    field: 'drop_city'
+  },
+  dropState: {
+    type: DataTypes.STRING(100),
+    field: 'drop_state'
+  },
+  dropPostalCode: {
+    type: DataTypes.STRING(20),
+    field: 'drop_postal_code'
+  },
+  dropContactName: {
+    type: DataTypes.STRING(100),
+    field: 'drop_contact_name'
+  },
+  dropContactPhone: {
+    type: DataTypes.STRING(15),
+    field: 'drop_contact_phone'
+  },
+  driverCurrentLat: {
+    type: DataTypes.DECIMAL(10, 8),
+    field: 'driver_current_lat'
+  },
+  driverCurrentLng: {
+    type: DataTypes.DECIMAL(11, 8),
+    field: 'driver_current_lng'
+  },
+  lastLocationUpdate: {
+    type: DataTypes.DATE,
+    field: 'last_location_update'
+  },
+  isPickedUp: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    field: 'is_picked_up'
+  },
+  isDropped: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    field: 'is_dropped'
+  },
+  pickupConfirmedAt: {
+    type: DataTypes.DATE,
+    field: 'pickup_confirmed_at'
+  },
+  dropConfirmedAt: {
+    type: DataTypes.DATE,
+    field: 'drop_confirmed_at'
+  },
+  pickupConfirmationCode: {
+    type: DataTypes.STRING(10),
+    field: 'pickup_confirmation_code'
+  },
+  dropConfirmationCode: {
+    type: DataTypes.STRING(10),
+    field: 'drop_confirmation_code'
+  },
+  budget: {
+    type: DataTypes.DECIMAL(10, 2),
+    allowNull: false
+  },
+  finalAmount: {
+    type: DataTypes.DECIMAL(10, 2),
+    field: 'final_amount'
+  },
+  paymentStatus: {
+    type: DataTypes.STRING(20),
+    defaultValue: 'pending',
+    field: 'payment_status'
+  },
+  specialInstructions: {
+    type: DataTypes.TEXT,
+    field: 'special_instructions'
+  },
+  estimatedDistance: {
+    type: DataTypes.DECIMAL(8, 2),
+    field: 'estimated_distance'
+  },
+  actualDistance: {
+    type: DataTypes.DECIMAL(8, 2),
+    field: 'actual_distance'
+  },
+  estimatedDuration: {
+    type: DataTypes.INTEGER,
+    field: 'estimated_duration'
+  },
+  actualDuration: {
+    type: DataTypes.INTEGER,
+    field: 'actual_duration'
+  },
+  acceptedAt: {
+    type: DataTypes.DATE,
+    field: 'accepted_at'
+  },
+  startedAt: {
+    type: DataTypes.DATE,
+    field: 'started_at'
+  },
+  deliveredAt: {
+    type: DataTypes.DATE,
+    field: 'delivered_at'
+  },
+  completedAt: {
+    type: DataTypes.DATE,
+    field: 'completed_at'
+  },
+  cancelledAt: {
+    type: DataTypes.DATE,
+    field: 'cancelled_at'
+  }
+}, {
+  tableName: 'loads',
+  underscored: true,
+  timestamps: true
+});
+
+// Define Rating model
+const Rating = sequelize.define('Rating', {
+  id: {
+    type: DataTypes.UUID,
+    defaultValue: DataTypes.UUIDV4,
+    primaryKey: true
+  },
+  loadId: {
+    type: DataTypes.UUID,
+    allowNull: false,
+    field: 'load_id',
+    unique: true
+  },
+  vendorId: {
+    type: DataTypes.UUID,
+    allowNull: false,
+    field: 'vendor_id'
+  },
+  driverId: {
+    type: DataTypes.UUID,
+    allowNull: false,
+    field: 'driver_id'
+  },
+  overallRating: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    field: 'overall_rating',
+    validate: {
+      min: 1,
+      max: 5
+    }
+  },
+  review: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
+  punctualityRating: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    field: 'punctuality_rating',
+    validate: {
+      min: 1,
+      max: 5
+    }
+  },
+  behaviorRating: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    field: 'behavior_rating',
+    validate: {
+      min: 1,
+      max: 5
+    }
+  },
+  vehicleConditionRating: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    field: 'vehicle_condition_rating',
+    validate: {
+      min: 1,
+      max: 5
+    }
+  },
+  careOfGoodsRating: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    field: 'care_of_goods_rating',
+    validate: {
+      min: 1,
+      max: 5
+    }
+  },
+  isFlagged: {
+    type: DataTypes.BOOLEAN,
+    allowNull: true,
+    field: 'is_flagged',
+    defaultValue: false
+  },
+  flaggedReason: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+    field: 'flagged_reason'
+  },
+  flaggedBy: {
+    type: DataTypes.UUID,
+    allowNull: true,
+    field: 'flagged_by'
+  },
+  isVisible: {
+    type: DataTypes.BOOLEAN,
+    allowNull: true,
+    field: 'is_visible',
+    defaultValue: true
+  }
+}, {
+  tableName: 'ratings',
+  underscored: true,
+  timestamps: true
+});
+
+// Set up Load associations
+Load.belongsTo(User, { foreignKey: 'vendorId', as: 'vendor' });
+Load.belongsTo(User, { foreignKey: 'driverId', as: 'driver' });
+User.hasMany(Load, { foreignKey: 'vendorId', as: 'postedLoads' });
+User.hasMany(Load, { foreignKey: 'driverId', as: 'assignedLoads' });
+
+// Set up Rating associations
+Rating.belongsTo(Load, { foreignKey: 'loadId', as: 'load' });
+Rating.belongsTo(User, { foreignKey: 'vendorId', as: 'vendor' });
+Rating.belongsTo(User, { foreignKey: 'driverId', as: 'driver' });
+Load.hasOne(Rating, { foreignKey: 'loadId', as: 'rating' });
+User.hasMany(Rating, { foreignKey: 'driverId', as: 'receivedRatings' });
+User.hasMany(Rating, { foreignKey: 'vendorId', as: 'givenRatings' });
+
+// NOTE: User, Driver, Vendor, Admin associations are already set up in models-updated.js defineModels()
+// No need to duplicate those associations here
+
+// Mount admin routes
+app.use('/api', createAdminRoutes(normalizedModels, JWT_SECRET, redisClient));
+app.use('/api', createRegistrationRoutes(normalizedModels));
+
+console.log('✅ Admin system integrated successfully');
+
+// ===================== PUSH NOTIFICATION SERVICE =====================
+const PushNotificationService = require('./push-notification-service');
+const pushNotificationService = new PushNotificationService(normalizedModels);
+
+// Save push token endpoint
+app.post('/users/push-token', authenticateToken, async (req, res) => {
+  try {
+    const { expoPushToken, deviceType, deviceModel } = req.body;
+
+    if (!expoPushToken) {
+      return res.status(400).json({
+        success: false,
+        message: 'Push token is required'
+      });
+    }
+
+    // Update user with push token
+    await User.update(
+      {
+        expoPushToken,
+        deviceType,
+        deviceModel,
+        pushTokenUpdatedAt: new Date()
+      },
+      {
+        where: { id: req.user.userId }
+      }
+    );
+
+    console.log(`✅ Push token saved for user ${req.user.userId}: ${expoPushToken.substring(0, 20)}...`);
+
+    res.json({
+      success: true,
+      message: 'Push token registered successfully'
+    });
+
+  } catch (error) {
+    console.error('Error saving push token:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to save push token'
+    });
+  }
+});
+
+// Test push notification endpoint (for testing purposes)
+app.post('/users/test-notification', authenticateToken, async (req, res) => {
+  try {
+    const { title, body } = req.body;
+
+    const result = await pushNotificationService.sendToUser(req.user.userId, {
+      type: 'test',
+      title: title || 'Test Notification',
+      body: body || 'This is a test notification from LoadConnect!',
+      data: { test: true }
+    });
+
+    if (result.success) {
+      res.json({
+        success: true,
+        message: 'Test notification sent successfully'
+      });
+    } else {
+      res.status(400).json({
+        success: false,
+        message: result.error || 'Failed to send notification'
+      });
+    }
+
+  } catch (error) {
+    console.error('Error sending test notification:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to send test notification'
+    });
+  }
+});
+
+console.log('✅ Push notification service initialized');
+
+// ===================== HEALTH & DIAGNOSTICS =====================
+
+app.get('/health', async (req, res) => {
+  try {
+    // Test database connections
+    const dbStatus = await User.count();
+    
+    res.json({
+      success: true,
+      message: 'PostgreSQL + Redis server is healthy',
+      timestamp: new Date().toISOString(),
+      version: '4.0.0',
+      database: {
+        postgresql: `Connected (${dbStatus} users)`,
+        redis: 'Connected'
+      },
+      client: {
+        ip: req.ip || req.connection.remoteAddress,
+        userAgent: req.headers['user-agent'],
+        host: req.headers.host
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Database connection failed',
+      error: error.message
+    });
+  }
+});
+
+// ===================== AUTH ENDPOINTS =====================
+
+app.post('/auth/send-otp', async (req, res) => {
+  try {
+    const { phone } = req.body;
+    
+    if (!phone || !/^\d{10}$/.test(phone)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid 10-digit phone number'
+      });
+    }
+
+    const otp = generateOTP();
+    await RedisLogger.set(`otp:${phone}`, otp, 300); // 5 minutes
+
+    console.log(`📱 Generated OTP for ${phone}: ${otp}`);
+
+    // Check if user exists
+    const existingUser = await User.findOne({ where: { phone } });
+
+    res.json({
+      success: true,
+      data: {
+        phone,
+        userExists: !!existingUser,
+        isNewUser: !existingUser
+      },
+      message: `OTP sent successfully to ${phone}. For testing: ${otp}`
+    });
+
+  } catch (error) {
+    console.error('Send OTP error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+});
+
+app.post('/auth/signin', async (req, res) => {
+  try {
+    const { phone, otp } = req.body;
+    
+    if (!phone || !otp) {
+      return res.status(400).json({
+        success: false,
+        message: 'Phone number and OTP are required'
+      });
+    }
+
+    // Verify OTP
+    const storedOtp = await RedisLogger.get(`otp:${phone}`);
+    if (!storedOtp || storedOtp !== otp) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid or expired OTP'
+      });
+    }
+
+    // Find user
+    const user = await User.findOne({ where: { phone } });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found. Please register first.'
+      });
+    }
+
+    // Clear OTP
+    await RedisLogger.del(`otp:${phone}`);
+
+    // Update last active time
+    await user.update({ lastActiveAt: new Date() });
+
+    // Generate tokens
+    const tokens = await generateTokens(user.id, user.userType);
+
+    // Cache user session
+    await RedisLogger.set(`user_session:${user.id}`, JSON.stringify({
+      id: user.id,
+      type: user.userType,
+      phone: user.phone,
+      name: user.name,
+      lastLoginAt: new Date().toISOString()
+    }), 24 * 60 * 60);
+
+    res.json({
+      success: true,
+      data: {
+        user: {
+          id: user.id,
+          type: user.userType,
+          phone: user.phone,
+          username: user.username,
+          name: user.name,
+          phoneVerified: user.phoneVerified,
+          approvalStatus: user.approvalStatus,
+          verified: user.phoneVerified
+        },
+        tokens
+      },
+      message: 'Sign in successful'
+    });
+
+  } catch (error) {
+    console.error('Sign in error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+});
+
+app.post('/auth/register/driver', async (req, res) => {
+  try {
+    const { phone, otp, name, licenseNumber, vehicleType, vehicleCapacity, vehicleNumber } = req.body;
+    
+    if (!phone || !otp || !name || !licenseNumber || !vehicleType || !vehicleCapacity || !vehicleNumber) {
+      return res.status(400).json({
+        success: false,
+        message: 'All fields are required for driver registration'
+      });
+    }
+
+    // Verify OTP
+    const storedOtp = await RedisLogger.get(`otp:${phone}`);
+    if (!storedOtp || storedOtp !== otp) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid or expired OTP'
+      });
+    }
+
+    // Check if user already exists
+    const existingUser = await User.findOne({ where: { phone } });
+    if (existingUser) {
+      return res.status(409).json({
+        success: false,
+        message: 'User already exists'
+      });
+    }
+
+    // Create new driver
+    const driver = await User.create({
+      userType: UserType.DRIVER,
+      phone,
+      username: phone,
+      name,
+      verified: true,
+      isActive: true,
+      isAvailable: true,
+      licenseNumber,
+      vehicleType,
+      vehicleCapacity: parseFloat(vehicleCapacity),
+      vehicleNumber,
+      rating: 5.0,
+      totalTrips: 0,
+      completedTrips: 0,
+      totalEarnings: 0,
+      lastActiveAt: new Date()
+    });
+
+    // Create Driver profile in separate drivers table
+    const driverProfile = await Driver.create({
+      userId: driver.id,
+      licenseNumber,
+      vehicleType,
+      vehicleCapacity: parseFloat(vehicleCapacity),
+      vehicleNumber,
+      isAvailable: true,
+      rating: 5.0,
+      totalTrips: 0,
+      completedTrips: 0,
+      totalEarnings: 0.0
+    });
+
+    // Clear OTP
+    await RedisLogger.del(`otp:${phone}`);
+
+    // Generate tokens
+    const tokens = await generateTokens(driver.id, driver.userType);
+
+    res.status(201).json({
+      success: true,
+      data: {
+        user: {
+          id: driver.id,
+          userType: driver.userType,
+          phone: driver.phone,
+          username: driver.username,
+          name: driver.name,
+          verified: driver.verified,
+          vehicleType: driver.vehicleType,
+          vehicleCapacity: driver.vehicleCapacity,
+          vehicleNumber: driver.vehicleNumber
+        },
+        tokens
+      },
+      message: 'Driver registration successful'
+    });
+
+  } catch (error) {
+    console.error('Driver registration error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+});
+
+app.post('/auth/register/vendor', async (req, res) => {
+  try {
+    const { phone, otp, name, businessName, gstNumber } = req.body;
+
+    if (!phone || !otp || !name || !businessName) {
+      return res.status(400).json({
+        success: false,
+        message: 'Phone, OTP, name, and business name are required'
+      });
+    }
+
+    // Verify OTP
+    const storedOtp = await RedisLogger.get(`otp:${phone}`);
+    if (!storedOtp || storedOtp !== otp) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid or expired OTP'
+      });
+    }
+
+    // Check if user already exists
+    const existingUser = await User.findOne({ where: { phone } });
+    if (existingUser) {
+      return res.status(409).json({
+        success: false,
+        message: 'User already exists'
+      });
+    }
+
+    // Create User record with userType
+    const user = await User.create({
+      userType: 'vendor',
+      phone,
+      username: phone,
+      name,
+      phoneVerified: true,
+      isActive: true,
+      approvalStatus: 'pending',
+      lastActiveAt: new Date()
+    });
+
+    // Create Vendor profile in separate table
+    const vendor = await Vendor.create({
+      userId: user.id,
+      businessName,
+      gstNumber: gstNumber || null,
+      rating: 5.00,
+      totalOrders: 0
+    });
+
+    // Clear OTP
+    await RedisLogger.del(`otp:${phone}`);
+
+    // Generate tokens
+    const tokens = await generateTokens(user.id, user.userType);
+
+    res.status(201).json({
+      success: true,
+      data: {
+        user: {
+          id: user.id,
+          type: user.userType,
+          phone: user.phone,
+          username: user.username,
+          name: user.name,
+          phoneVerified: user.phoneVerified,
+          approvalStatus: user.approvalStatus,
+          businessName: vendor.businessName,
+          gstNumber: vendor.gstNumber
+        },
+        tokens
+      },
+      message: 'Vendor registration successful'
+    });  } catch (error) {
+    console.error('Vendor registration error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+});
+
+app.post('/auth/signout', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    // Blacklist the current token
+    if (token) {
+      await RedisLogger.set(`blacklisted_token:${token}`, 'true', 24 * 60 * 60);
+    }
+
+    // Remove user session
+    await RedisLogger.del(`user_session:${userId}`);
+    await RedisLogger.del(`access_token:${userId}`);
+    await RedisLogger.del(`refresh_token:${userId}`);
+
+    console.log(`👋 User ${userId} signed out successfully`);
+
+    res.json({
+      success: true,
+      message: 'Signed out successfully'
+    });
+
+  } catch (error) {
+    console.error('Sign out error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+});
+
+// Profile update endpoints
+app.put('/auth/profile/driver', authenticateToken, async (req, res) => {
+  try {
+    const { licenseNumber, vehicleType, vehicleCapacity, vehicleNumber, name, isAvailable } = req.body;
+    const userId = req.user.userId;
+
+    // Find the driver
+    const driver = await User.findOne({ where: { id: userId, userType: 'driver' } });
+    if (!driver) {
+      return res.status(404).json({
+        success: false,
+        message: 'Driver not found'
+      });
+    }
+
+    // Update driver profile in Users table
+    const updateData = {};
+    if (name) updateData.name = name;
+    if (licenseNumber) updateData.licenseNumber = licenseNumber;
+    if (vehicleType) updateData.vehicleType = vehicleType;
+    if (vehicleCapacity) updateData.vehicleCapacity = parseFloat(vehicleCapacity);
+    if (vehicleNumber) updateData.vehicleNumber = vehicleNumber.toUpperCase();
+    if (typeof isAvailable === 'boolean') updateData.isAvailable = isAvailable;
+    updateData.updatedAt = new Date();
+
+    await driver.update(updateData);
+
+    // Broadcast driver availability change if it was updated
+    if (typeof isAvailable === 'boolean' && driver.latitude && driver.longitude) {
+      broadcastDriverAvailabilityChange({
+        latitude: driver.latitude,
+        longitude: driver.longitude
+      }, isAvailable);
+    }
+
+    // Create or update Driver profile in drivers table
+    const driverProfileData = {
+      userId: driver.id,
+      isAvailable: typeof isAvailable === 'boolean' ? isAvailable : driver.isAvailable,
+      rating: driver.rating || 5.0,
+      totalTrips: driver.totalTrips || 0,
+      completedTrips: driver.completedTrips || 0,
+      totalEarnings: driver.totalEarnings || 0.0
+    };
+    
+    if (licenseNumber) driverProfileData.licenseNumber = licenseNumber;
+    if (vehicleType) driverProfileData.vehicleType = vehicleType;
+    if (vehicleCapacity) driverProfileData.vehicleCapacity = parseFloat(vehicleCapacity);
+    if (vehicleNumber) driverProfileData.vehicleNumber = vehicleNumber.toUpperCase();
+
+    // Use upsert to create if not exists, update if exists
+    await Driver.upsert(driverProfileData);
+
+    console.log(`✅ Driver profile updated for user ${userId}`);
+
+    res.json({
+      success: true,
+      data: {
+        user: {
+          id: driver.id,
+          type: driver.userType,
+          phone: driver.phone,
+          username: driver.username,
+          name: driver.name,
+          verified: driver.verified,
+          isAvailable: driver.isAvailable
+        },
+        driver: {
+          licenseNumber: driver.licenseNumber,
+          vehicleType: driver.vehicleType,
+          vehicleCapacity: driver.vehicleCapacity,
+          vehicleNumber: driver.vehicleNumber,
+          rating: driver.rating,
+          totalTrips: driver.totalTrips,
+          completedTrips: driver.completedTrips,
+          totalEarnings: driver.totalEarnings,
+          isAvailable: driver.isAvailable
+        }
+      },
+      message: 'Driver profile updated successfully'
+    });
+
+  } catch (error) {
+    console.error('Driver profile update error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+});
+
+app.put('/auth/profile/vendor', authenticateToken, async (req, res) => {
+  try {
+    const { businessName, gstNumber, name } = req.body;
+    const userId = req.user.userId;
+
+    // Find the user
+    const user = await User.findOne({ where: { id: userId, userType: 'vendor' } });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'Vendor user not found'
+      });
+    }
+
+    // Find the vendor profile
+    const vendor = await Vendor.findOne({ where: { userId: userId } });
+    if (!vendor) {
+      return res.status(404).json({
+        success: false,
+        message: 'Vendor profile not found'
+      });
+    }
+
+    // Update user table if name changed
+    if (name && name !== user.name) {
+      await user.update({ name, updatedAt: new Date() });
+    }
+
+    // Update vendor table
+    const vendorUpdateData = {};
+    if (businessName) vendorUpdateData.businessName = businessName;
+    if (gstNumber) vendorUpdateData.gstNumber = gstNumber.toUpperCase();
+    
+    if (Object.keys(vendorUpdateData).length > 0) {
+      vendorUpdateData.updatedAt = new Date();
+      await vendor.update(vendorUpdateData);
+    }
+
+    // Reload to get updated data
+    await user.reload();
+    await vendor.reload();
+
+    res.json({
+      success: true,
+      data: {
+        user: {
+          id: user.id,
+          type: user.userType,
+          phone: user.phone,
+          username: user.username,
+          name: user.name,
+          phoneVerified: user.phoneVerified,
+          approvalStatus: user.approvalStatus
+        },
+        vendor: {
+          businessName: vendor.businessName,
+          gstNumber: vendor.gstNumber,
+          rating: vendor.rating,
+          totalOrders: vendor.totalOrders
+        }
+      },
+      message: 'Vendor profile updated successfully'
+    });
+
+  } catch (error) {
+    console.error('Vendor profile update error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+});
+
+// Get full user profile endpoint
+app.get('/auth/profile', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userType = req.user.userType;
+
+    console.log(`🔍 Profile Request - User ID: ${userId}, Type from token: ${userType}`);
+
+    // Find the user
+    const user = await User.findByPk(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    console.log(`🔍 Profile Request - Type from DB: ${user.userType}`);
+
+    // Base user data
+    const userData = {
+      id: user.id,
+      type: user.userType,
+      phone: user.phone,
+      username: user.username,
+      name: user.name,
+      email: user.email,
+      phoneVerified: user.phoneVerified,
+      emailVerified: user.emailVerified,
+      isActive: user.isActive,
+      approvalStatus: user.approvalStatus,
+      lastActiveAt: user.lastActiveAt,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt
+    };
+
+    // Return data based on user type (use DB user type, not token type)
+    if (user.userType === 'driver') {
+      // Get driver profile
+      const driver = await Driver.findOne({ where: { userId: user.id } });
+      
+      if (!driver) {
+        console.error(`❌ Driver profile not found for user ${user.id}`);
+        return res.status(404).json({
+          success: false,
+          message: 'Driver profile not found'
+        });
+      }
+
+      console.log(`✅ Driver profile found for ${user.name}`);
+      
+      res.json({
+        success: true,
+        data: {
+          user: userData,
+          driver: {
+            licenseNumber: driver.licenseNumber,
+            vehicleType: driver.vehicleType,
+            vehicleCapacity: driver.vehicleCapacity,
+            vehicleNumber: driver.vehicleNumber,
+            isAvailable: driver.isAvailable,
+            rating: driver.rating,
+            totalTrips: driver.totalTrips,
+            completedTrips: driver.completedTrips,
+            totalEarnings: driver.totalEarnings
+          }
+        },
+        message: 'Driver profile retrieved successfully'
+      });
+    } else if (user.userType === 'vendor') {
+      // Get vendor profile
+      const vendor = await Vendor.findOne({ where: { userId: user.id } });
+      
+      if (!vendor) {
+        console.error(`❌ Vendor profile not found for user ${user.id}`);
+        return res.status(404).json({
+          success: false,
+          message: 'Vendor profile not found'
+        });
+      }
+
+      console.log(`✅ Vendor profile found for ${user.name}`);
+
+      res.json({
+        success: true,
+        data: {
+          user: userData,
+          vendor: {
+            businessName: vendor.businessName,
+            gstNumber: vendor.gstNumber,
+            rating: vendor.rating,
+            totalOrders: vendor.totalOrders
+          }
+        },
+        message: 'Vendor profile retrieved successfully'
+      });
+    } else if (user.userType === 'admin') {
+      // Get admin profile
+      const admin = await Admin.findOne({ where: { userId: user.id } });
+      
+      res.json({
+        success: true,
+        data: {
+          user: userData,
+          admin: admin ? {
+            adminLevel: admin.adminLevel,
+            department: admin.department,
+            canApproveVendors: admin.canApproveVendors,
+            canApproveDrivers: admin.canApproveDrivers,
+            canSuspendUsers: admin.canSuspendUsers
+          } : null
+        },
+        message: 'Admin profile retrieved successfully'
+      });
+    } else {
+      // Basic user with no additional profile
+      res.json({
+        success: true,
+        data: { user: userData },
+        message: 'User profile retrieved successfully'
+      });
+    }
+
+  } catch (error) {
+    console.error('Profile retrieval error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+});
+
+// ===================== LOAD ENDPOINTS =====================
+
+// Enhanced geocoding with more locations including smaller cities/towns
+const geocodeAddress = async (address) => {
+  // Extended location database covering major cities and important towns
+  const locationDatabase = {
+    // Major cities
+    'bangalore': { lat: 12.9716, lng: 77.5946 },
+    'mumbai': { lat: 19.0760, lng: 72.8777 },
+    'delhi': { lat: 28.7041, lng: 77.1025 },
+    'chennai': { lat: 13.0827, lng: 80.2707 },
+    'hyderabad': { lat: 17.3850, lng: 78.4867 },
+    'pune': { lat: 18.5204, lng: 73.8567 },
+    'kolkata': { lat: 22.5726, lng: 88.3639 },
+    'ahmedabad': { lat: 23.0225, lng: 72.5714 },
+    'jaipur': { lat: 26.9124, lng: 75.7873 },
+    'surat': { lat: 21.1702, lng: 72.8311 },
+    'lucknow': { lat: 26.8467, lng: 80.9462 },
+    'kanpur': { lat: 26.4499, lng: 80.3319 },
+    'nagpur': { lat: 21.1458, lng: 79.0882 },
+    'indore': { lat: 22.7196, lng: 75.8577 },
+    'bhopal': { lat: 23.2599, lng: 77.4126 },
+    'visakhapatnam': { lat: 17.6868, lng: 83.2185 },
+    'patna': { lat: 25.5941, lng: 85.1376 },
+    'vadodara': { lat: 22.3072, lng: 73.1812 },
+    'ghaziabad': { lat: 28.6692, lng: 77.4538 },
+    'ludhiana': { lat: 30.9010, lng: 75.8573 },
+    
+    // Andhra Pradesh / Telangana cities and towns
+    'guntur': { lat: 16.3067, lng: 80.4365 },
+    'markapur': { lat: 15.7326, lng: 79.2670 },
+    'vijayawada': { lat: 16.5062, lng: 80.6480 },
+    'tirupati': { lat: 13.6288, lng: 79.4192 },
+    'nellore': { lat: 14.4426, lng: 79.9865 },
+    'kurnool': { lat: 15.8281, lng: 78.0373 },
+    'rajahmundry': { lat: 17.0005, lng: 81.8040 },
+    'kakinada': { lat: 16.9891, lng: 82.2475 },
+    'anantapur': { lat: 14.6819, lng: 77.6006 },
+    'chittoor': { lat: 13.2172, lng: 79.1003 },
+    'eluru': { lat: 16.7107, lng: 81.0958 },
+    'ongole': { lat: 15.5057, lng: 80.0499 },
+    'machilipatnam': { lat: 16.1871, lng: 81.1378 },
+    'nizamabad': { lat: 18.6725, lng: 78.0941 },
+    'karimnagar': { lat: 18.4386, lng: 79.1288 },
+    'warangal': { lat: 17.9689, lng: 79.5941 },
+    'khammam': { lat: 17.2473, lng: 80.1514 },
+    'mahbubnagar': { lat: 16.7302, lng: 77.9777 },
+    'adilabad': { lat: 19.6715, lng: 78.5311 },
+    
+    // Other important towns/cities
+    'coimbatore': { lat: 11.0168, lng: 76.9558 },
+    'madurai': { lat: 9.9252, lng: 78.1198 },
+    'salem': { lat: 11.6643, lng: 78.1460 },
+    'tiruchirappalli': { lat: 10.7905, lng: 78.7047 },
+    'erode': { lat: 11.3410, lng: 77.7172 },
+    'vellore': { lat: 12.9165, lng: 79.1325 },
+    'thoothukudi': { lat: 8.7642, lng: 78.1348 },
+    'thanjavur': { lat: 10.7870, lng: 79.1378 },
+    'dindigul': { lat: 10.3673, lng: 77.9803 },
+    'cuddalore': { lat: 11.7593, lng: 79.7711 },
+    
+    // Alternative spellings and common variations
+    'vizag': { lat: 17.6868, lng: 83.2185 }, // Visakhapatnam
+    'hyd': { lat: 17.3850, lng: 78.4867 }, // Hyderabad
+    'blr': { lat: 12.9716, lng: 77.5946 }, // Bangalore
+    'chennai': { lat: 13.0827, lng: 80.2707 },
+    'madras': { lat: 13.0827, lng: 80.2707 }, // Chennai old name
+    'kunata': { lat: 15.9011, lng: 79.3017 }, // Kunta, Prakasam district
+    'kunta': { lat: 15.9011, lng: 79.3017 }, // Kunta, Prakasam district
+  };
+  
+  const addressLower = address.toLowerCase().trim();
+  
+  // First, try exact matches
+  for (const [location, coords] of Object.entries(locationDatabase)) {
+    if (addressLower.includes(location)) {
+      console.log(`🗺️  Geocoded "${address}" to ${location}: ${coords.lat}, ${coords.lng}`);
+      // Add small random offset to avoid all loads having exact same coordinates
+      return {
+        lat: coords.lat + (Math.random() - 0.5) * 0.02, // ~1km variation
+        lng: coords.lng + (Math.random() - 0.5) * 0.02
+      };
+    }
+  }
+  
+  // If no match found, log warning and default to Bangalore
+  console.warn(`⚠️  Location "${address}" not found in database. Using Bangalore as fallback.`);
+  console.warn(`💡 Consider adding "${addressLower}" to the location database for better accuracy.`);
+  
+  return { 
+    lat: 12.9716 + (Math.random() - 0.5) * 0.1, 
+    lng: 77.5946 + (Math.random() - 0.5) * 0.1 
+  };
+};
+
+app.post('/loads', authenticateToken, async (req, res) => {
+  try {
+    if (req.userEntity.userType !== UserType.VENDOR) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only vendors can create loads'
+      });
+    }
+
+    const {
+      weight,
+      description,
+      vehicleTypeRequired = 'truck',
+      pickupLat,
+      pickupLng,
+      pickupAddress,
+      pickupDate,
+      pickupContactName,
+      pickupContactPhone,
+      dropLat,
+      dropLng,
+      dropAddress,
+      dropContactName,
+      dropContactPhone,
+      budget,
+      priority = 'medium',
+      specialInstructions
+    } = req.body;
+
+    // Validate required fields - coordinates are now required (from map selection)
+    if (!weight || !description || !budget) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields: weight, description, and budget are required'
+      });
+    }
+
+    // Validate pickup location (lat/lng required from map)
+    if (!pickupLat || !pickupLng) {
+      return res.status(400).json({
+        success: false,
+        message: 'Pickup location coordinates are required. Please select pickup location on map.'
+      });
+    }
+
+    // Validate drop location (lat/lng required from map)
+    if (!dropLat || !dropLng) {
+      return res.status(400).json({
+        success: false,
+        message: 'Drop location coordinates are required. Please select drop location on map.'
+      });
+    }
+
+    // Use provided coordinates directly (from map selection)
+    let finalPickupLat = parseFloat(pickupLat);
+    let finalPickupLng = parseFloat(pickupLng);
+    let finalDropLat = parseFloat(dropLat);
+    let finalDropLng = parseFloat(dropLng);
+    
+    // Check if addresses are just coordinates (need reverse geocoding)
+    const isPickupAddressCoords = pickupAddress && /^\d+\.\d+,\s*\d+\.\d+$/.test(pickupAddress.trim());
+    const isDropAddressCoords = dropAddress && /^\d+\.\d+,\s*\d+\.\d+$/.test(dropAddress.trim());
+    
+    // Do reverse geocoding if address is missing or is just coordinates
+    let finalPickupAddress = pickupAddress;
+    let finalDropAddress = dropAddress;
+    
+    if (!pickupAddress || isPickupAddressCoords) {
+      console.log(`🗺️  Reverse geocoding pickup location: ${finalPickupLat}, ${finalPickupLng}`);
+      const geocodedPickup = await GeocodingService.reverseGeocode(finalPickupLat, finalPickupLng);
+      if (geocodedPickup) {
+        finalPickupAddress = geocodedPickup;
+        console.log(`✅ Pickup address: ${finalPickupAddress}`);
+      } else {
+        finalPickupAddress = `${finalPickupLat.toFixed(6)}, ${finalPickupLng.toFixed(6)}`;
+      }
+    }
+    
+    if (!dropAddress || isDropAddressCoords) {
+      console.log(`🗺️  Reverse geocoding drop location: ${finalDropLat}, ${finalDropLng}`);
+      const geocodedDrop = await GeocodingService.reverseGeocode(finalDropLat, finalDropLng);
+      if (geocodedDrop) {
+        finalDropAddress = geocodedDrop;
+        console.log(`✅ Drop address: ${finalDropAddress}`);
+      } else {
+        finalDropAddress = `${finalDropLat.toFixed(6)}, ${finalDropLng.toFixed(6)}`;
+      }
+    }
+
+    console.log(`� Creating load with map-selected locations:`);
+    console.log(`   Pickup: ${finalPickupAddress} (${finalPickupLat}, ${finalPickupLng})`);
+    console.log(`   Drop: ${finalDropAddress} (${finalDropLat}, ${finalDropLng})`);
+
+    // Create load with map-selected coordinates
+    const load = await Load.create({
+      vendorId: req.user.userId,
+      weight: parseFloat(weight),
+      description,
+      vehicleTypeRequired,
+      priority,
+      status: LoadStatus.POSTED,
+      pickupLat: finalPickupLat,
+      pickupLng: finalPickupLng,
+      pickupAddress: finalPickupAddress,
+      pickupDate: new Date(pickupDate || Date.now()),
+      pickupContactName,
+      pickupContactPhone,
+      dropLat: finalDropLat,
+      dropLng: finalDropLng,
+      dropAddress: finalDropAddress,
+      dropContactName,
+      dropContactPhone,
+      budget: parseFloat(budget),
+      specialInstructions
+    });
+
+    console.log(`📦 Load created with map-selected locations: ${load.id}`);
+    console.log(`   Pickup: ${finalPickupAddress}`);
+    console.log(`   Drop: ${finalDropAddress}`);
+
+    // 🔔 Send push notifications to nearby drivers
+    try {
+      const notification = pushNotificationService.templates.newLoadPosted({
+        id: load.id,
+        weight: load.weight,
+        pickupAddress: finalPickupAddress,
+        dropAddress: finalDropAddress
+      });
+      
+      // Send to drivers within 150km radius
+      const result = await pushNotificationService.sendToNearbyDrivers(
+        { lat: finalPickupLat, lng: finalPickupLng },
+        150, // 150km radius
+        notification
+      );
+      
+      console.log(`📬 Notified ${result.successful} nearby drivers about new load`);
+    } catch (notifError) {
+      console.error('⚠️ Error sending load notifications:', notifError);
+      // Don't fail the request if notifications fail
+    }
+
+    res.status(201).json({
+      success: true,
+      data: { load },
+      message: 'Load created successfully'
+    });
+
+  } catch (error) {
+    console.error('Create load error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+});
+
+// Helper function to transform load data for frontend
+function formatLoadForFrontend(load) {
+  const loadData = load.toJSON ? load.toJSON() : load;
+  
+  return {
+    ...loadData,
+    // Transform flat fields to nested structure expected by frontend
+    pickupLocation: {
+      latitude: parseFloat(loadData.pickupLat),
+      longitude: parseFloat(loadData.pickupLng),
+      address: loadData.pickupAddress || `${loadData.pickupLat}, ${loadData.pickupLng}`
+    },
+    dropLocation: {
+      latitude: parseFloat(loadData.dropLat),
+      longitude: parseFloat(loadData.dropLng),
+      address: loadData.dropAddress || `${loadData.dropLat}, ${loadData.dropLng}`
+    },
+    // Keep flat fields for backward compatibility
+    pickupAddress: loadData.pickupAddress,
+    dropAddress: loadData.dropAddress,
+    // Convert numeric strings to numbers
+    weight: parseFloat(loadData.weight),
+    budget: parseFloat(loadData.budget),
+    finalAmount: loadData.finalAmount ? parseFloat(loadData.finalAmount) : null,
+    estimatedDistance: loadData.estimatedDistance ? parseFloat(loadData.estimatedDistance) : null,
+    actualDistance: loadData.actualDistance ? parseFloat(loadData.actualDistance) : null
+  };
+}
+
+app.get('/loads/available', authenticateToken, async (req, res) => {
+  try {
+    if (req.userEntity.userType !== UserType.DRIVER) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only drivers can view available loads'
+      });
+    }
+
+    const driverId = req.user.userId;
+    const { lat, lng } = req.query; // No radius parameter needed - we use progressive search
+
+    // Get driver details for matching
+    const user = await User.findByPk(driverId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'Driver not found'
+      });
+    }
+
+    // Get driver profile for vehicle details
+    const driver = await Driver.findOne({ where: { userId: driverId } });
+    if (!driver) {
+      return res.status(404).json({
+        success: false,
+        message: 'Driver profile not found'
+      });
+    }
+
+    console.log(`🚗 Driver vehicle: ${driver.vehicleType}, capacity: ${driver.vehicleCapacity}`);
+
+    // Check if driver already has an active load
+    const activeLoad = await Load.findOne({
+      where: {
+        driverId: driverId,
+        status: {
+          [Op.in]: [LoadStatus.ACCEPTED, LoadStatus.PICKED_UP, LoadStatus.IN_TRANSIT]
+        }
+      }
+    });
+
+    if (activeLoad) {
+      // Return success with empty loads and active load info for display
+      return res.json({
+        success: true,
+        data: [], // No available loads to show
+        message: 'You have an active load',
+        hasActiveLoad: true,
+        activeLoad: {
+          id: activeLoad.id,
+          status: activeLoad.status,
+          pickupAddress: activeLoad.pickupAddress,
+          dropAddress: activeLoad.dropAddress,
+          description: activeLoad.description,
+          budget: parseFloat(activeLoad.budget)
+        }
+      });
+    }
+
+    let whereClause = {
+      status: LoadStatus.POSTED,
+      driverId: null
+    };
+
+    // If location provided, add distance-based filtering with progressive radius
+    let orderClause = [['createdAt', 'DESC']];
+    
+    if (lat && lng) {
+      // Using Haversine formula for distance calculation
+      const earthRadius = 6371; // km
+      
+      // Convert to numeric
+      const driverLat = parseFloat(lat);
+      const driverLng = parseFloat(lng);
+      
+      // Progressive search radii in km: 50 -> 100 -> 200 -> 250
+      const searchRadii = [50, 100, 200, 250];
+      
+      console.log(`🌍 Starting progressive radius search from driver location: ${driverLat}, ${driverLng}`);
+      
+      // Get all available loads first
+      const allLoads = await Load.findAll({
+        where: whereClause,
+        order: orderClause,
+        limit: 100 // Get more to filter by distance
+      });
+
+      console.log(`📦 Total available loads in database: ${allLoads.length}`);
+
+      // Calculate distances for all loads
+      const loadsWithDistance = allLoads.map(load => {
+        const loadLat = load.pickupLat;
+        const loadLng = load.pickupLng;
+        
+        // Calculate distance using Haversine formula (in kilometers)
+        const dLat = (loadLat - driverLat) * Math.PI / 180;
+        const dLng = (loadLng - driverLng) * Math.PI / 180;
+        
+        const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(driverLat * Math.PI / 180) * Math.cos(loadLat * Math.PI / 180) *
+                Math.sin(dLng/2) * Math.sin(dLng/2);
+        
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        const distance = earthRadius * c; // Distance in km
+        
+        // Calculate match score based on multiple factors
+        let matchScore = 50; // Base score
+        
+        // Distance scoring (closer = higher score)
+        if (distance <= 5) matchScore += 40;
+        else if (distance <= 15) matchScore += 30;
+        else if (distance <= 30) matchScore += 20;
+        else if (distance <= 50) matchScore += 10;
+        
+        // Vehicle type matching
+        if (load.vehicleTypeRequired === driver.vehicleType) {
+          matchScore += 25;
+        }
+        
+        // Capacity matching
+        if (driver.vehicleCapacity && driver.vehicleCapacity >= load.weight) {
+          matchScore += 15;
+        }
+        
+        // Budget consideration (higher budget = higher score)
+        if (load.budget >= 5000) matchScore += 10;
+        else if (load.budget >= 2000) matchScore += 5;
+        
+        // Calculate trip distance (pickup to drop)
+        const tripDLat = (load.dropLat - load.pickupLat) * Math.PI / 180;
+        const tripDLng = (load.dropLng - load.pickupLng) * Math.PI / 180;
+        const tripA = Math.sin(tripDLat/2) * Math.sin(tripDLat/2) +
+                Math.cos(load.pickupLat * Math.PI / 180) * Math.cos(load.dropLat * Math.PI / 180) *
+                Math.sin(tripDLng/2) * Math.sin(tripDLng/2);
+        const tripC = 2 * Math.atan2(Math.sqrt(tripA), Math.sqrt(1-tripA));
+        const tripDistance = earthRadius * tripC;
+        
+        return {
+          ...load.toJSON(),
+          distance: Math.round(distance * 10) / 10, // Distance from driver to pickup (in km)
+          estimatedDistance: Math.round(tripDistance * 10) / 10, // Distance from pickup to drop (in km)
+          matchScore: Math.min(matchScore, 100),
+          estimatedTime: Math.ceil(distance / 60 * 60), // Time to reach pickup (rough estimate: 60km/h)
+          estimatedTripDuration: Math.ceil(tripDistance / 50 * 60), // Trip duration in minutes (50km/h avg)
+          // Transform to frontend format
+          pickupLocation: {
+            latitude: parseFloat(load.pickupLat),
+            longitude: parseFloat(load.pickupLng),
+            address: load.pickupAddress || `${load.pickupLat}, ${load.pickupLng}`
+          },
+          dropLocation: {
+            latitude: parseFloat(load.dropLat),
+            longitude: parseFloat(load.dropLng),
+            address: load.dropAddress || `${load.dropLat}, ${load.dropLng}`
+          },
+          // Convert numeric fields
+          weight: parseFloat(load.weight),
+          budget: parseFloat(load.budget)
+        };
+      })
+      .sort((a, b) => b.matchScore - a.matchScore); // Sort by match score
+
+      // Progressive radius search: 50km -> 100km -> 200km -> 250km
+      let foundLoads = [];
+      let usedRadius = 0;
+
+      for (const radius of searchRadii) {
+        foundLoads = loadsWithDistance.filter(load => load.distance <= radius);
+        console.log(`� Searching within ${radius}km: Found ${foundLoads.length} loads`);
+        
+        if (foundLoads.length > 0) {
+          usedRadius = radius;
+          foundLoads = foundLoads.slice(0, 20); // Limit to 20 best matches
+          console.log(`✅ Found loads within ${radius}km radius`);
+          foundLoads.forEach(load => {
+            console.log(`   📍 Load ${load.id.substring(0, 8)}: ${load.distance}km away, score: ${load.matchScore}`);
+          });
+          break;
+        }
+      }
+
+      // If no loads found even at 250km, show the closest loads
+      if (foundLoads.length === 0) {
+        console.log(`❌ No loads found within 250km. Showing closest loads:`);
+        const sortedByDistance = [...loadsWithDistance].sort((a, b) => a.distance - b.distance);
+        sortedByDistance.slice(0, 3).forEach(load => {
+          console.log(`   📍 Load ${load.id.substring(0, 8)}: ${load.distance}km away`);
+        });
+        usedRadius = 250;
+      }
+
+      res.json({
+        success: true,
+        data: foundLoads,
+        message: foundLoads.length > 0 
+          ? `Found ${foundLoads.length} loads within ${usedRadius}km`
+          : `No loads available within 250km of your location.`,
+        searchInfo: {
+          driverLocation: { lat: driverLat, lng: driverLng },
+          searchRadius: usedRadius,
+          totalLoadsAvailable: allLoads.length,
+          loadsWithinRadius: foundLoads.length,
+          searchRadiiAttempted: searchRadii.filter(r => r <= usedRadius)
+        }
+      });
+
+    } else {
+      // Fallback: no location provided, return loads with basic matching
+      const availableLoads = await Load.findAll({
+        where: whereClause,
+        order: orderClause,
+        limit: 20
+      });
+
+      // Add basic match scores without location
+      const loadsWithScore = availableLoads.map(load => {
+        let matchScore = 50; // Base score
+        
+        // Vehicle type matching
+        if (load.vehicleTypeRequired === driver.vehicleType) {
+          matchScore += 25;
+        }
+        
+        // Capacity matching  
+        if (driver.vehicleCapacity && driver.vehicleCapacity >= load.weight) {
+          matchScore += 15;
+        }
+        
+        // Budget consideration
+        if (load.budget >= 5000) matchScore += 10;
+        else if (load.budget >= 2000) matchScore += 5;
+        
+        // Calculate trip distance (pickup to drop) even without driver location
+        const earthRadius = 6371; // km
+        const tripDLat = (load.dropLat - load.pickupLat) * Math.PI / 180;
+        const tripDLng = (load.dropLng - load.pickupLng) * Math.PI / 180;
+        const tripA = Math.sin(tripDLat/2) * Math.sin(tripDLat/2) +
+                Math.cos(load.pickupLat * Math.PI / 180) * Math.cos(load.dropLat * Math.PI / 180) *
+                Math.sin(tripDLng/2) * Math.sin(tripDLng/2);
+        const tripC = 2 * Math.atan2(Math.sqrt(tripA), Math.sqrt(1-tripA));
+        const tripDistance = earthRadius * tripC;
+        
+        return {
+          ...load.toJSON(),
+          matchScore: Math.min(matchScore, 100),
+          distance: null, // Distance from driver to pickup (unknown without driver location)
+          estimatedDistance: Math.round(tripDistance * 10) / 10, // Distance from pickup to drop (in km)
+          estimatedTime: null,
+          estimatedTripDuration: Math.ceil(tripDistance / 50 * 60), // Trip duration in minutes
+          // Transform to frontend format
+          pickupLocation: {
+            latitude: parseFloat(load.pickupLat),
+            longitude: parseFloat(load.pickupLng),
+            address: load.pickupAddress || `${load.pickupLat}, ${load.pickupLng}`
+          },
+          dropLocation: {
+            latitude: parseFloat(load.dropLat),
+            longitude: parseFloat(load.dropLng),
+            address: load.dropAddress || `${load.dropLat}, ${load.dropLng}`
+          },
+          // Convert numeric fields
+          weight: parseFloat(load.weight),
+          budget: parseFloat(load.budget)
+        };
+      }).sort((a, b) => b.matchScore - a.matchScore);
+
+      console.log(`📦 Found ${loadsWithScore.length} available loads for driver ${driverId} (no location filtering)`);
+
+      res.json({
+        success: true,
+        data: loadsWithScore,
+        message: `Found ${loadsWithScore.length} available loads`,
+        searchInfo: {
+          driverLocation: null,
+          searchRadius: null,
+          totalLoadsFiltered: loadsWithScore.length
+        }
+      });
+    }
+
+  } catch (error) {
+    console.error('Get available loads error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+});
+
+app.get('/loads/vendor/:vendorId', authenticateToken, async (req, res) => {
+  try {
+    const { vendorId } = req.params;
+    
+    console.log(`🔍 Load request - Vendor ID from URL: ${vendorId}`);
+    console.log(`🔍 Load request - User ID from token: ${req.user.userId}`);
+    console.log(`🔍 Load request - User type from token: ${req.userEntity.userType}`);
+    console.log(`🔍 Load request - Match: ${req.user.userId === vendorId}`);
+    
+    if (req.userEntity.userType !== UserType.VENDOR || req.user.userId !== vendorId) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Only vendors can access their own loads.'
+      });
+    }
+
+    const vendorLoads = await Load.findAll({
+      where: {
+        vendorId: vendorId
+      },
+      order: [['createdAt', 'DESC']]
+    });
+
+    console.log(`📦 Found ${vendorLoads.length} loads for vendor ${vendorId}`);
+
+    res.json({
+      success: true,
+      data: vendorLoads,
+      message: `Found ${vendorLoads.length} loads for vendor`
+    });
+
+  } catch (error) {
+    console.error('Get vendor loads error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+});
+
+app.get('/loads/driver/:driverId', authenticateToken, async (req, res) => {
+  try {
+    const { driverId } = req.params;
+    
+    console.log(`🔍 Load request - Driver ID from URL: ${driverId}`);
+    console.log(`🔍 Load request - User ID from token: ${req.user.userId}`);
+    console.log(`🔍 Load request - User type from token: ${req.userEntity.userType}`);
+    console.log(`🔍 Load request - Match: ${req.user.userId === driverId}`);
+    
+    if (req.userEntity.userType !== UserType.DRIVER || req.user.userId !== driverId) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Only drivers can access their own loads.'
+      });
+    }
+
+    const driverLoads = await Load.findAll({
+      where: {
+        driverId: driverId
+      },
+      order: [['acceptedAt', 'DESC'], ['createdAt', 'DESC']]
+    });
+
+    console.log(`🚛 Found ${driverLoads.length} loads for driver ${driverId}`);
+
+    res.json({
+      success: true,
+      data: driverLoads,
+      message: `Found ${driverLoads.length} loads for driver`
+    });
+
+  } catch (error) {
+    console.error('Get driver loads error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+});
+
+// Get driver earnings summary
+app.get('/loads/driver/:driverId/earnings', authenticateToken, async (req, res) => {
+  try {
+    const { driverId } = req.params;
+    
+    if (req.userEntity.userType !== UserType.DRIVER || req.user.userId !== driverId) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Only drivers can access their own earnings.'
+      });
+    }
+
+    // Get driver profile for total earnings
+    const driver = await Driver.findOne({ where: { userId: driverId } });
+    
+    if (!driver) {
+      return res.status(404).json({
+        success: false,
+        message: 'Driver profile not found'
+      });
+    }
+
+    // Calculate this month's earnings
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
+
+    const monthLoads = await Load.findAll({
+      where: {
+        driverId: driverId,
+        status: LoadStatus.DELIVERED,
+        deliveredAt: {
+          [Op.gte]: startOfMonth
+        }
+      }
+    });
+
+    const thisMonthEarnings = monthLoads.reduce((sum, load) => 
+      sum + parseFloat(load.budget.toString()), 0
+    );
+
+    // Calculate this week's earnings
+    const startOfWeek = new Date();
+    startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
+    startOfWeek.setHours(0, 0, 0, 0);
+
+    const weekLoads = await Load.findAll({
+      where: {
+        driverId: driverId,
+        status: LoadStatus.DELIVERED,
+        deliveredAt: {
+          [Op.gte]: startOfWeek
+        }
+      }
+    });
+
+    const thisWeekEarnings = weekLoads.reduce((sum, load) => 
+      sum + parseFloat(load.budget.toString()), 0
+    );
+
+    const earningsData = {
+      totalEarnings: parseFloat(driver.totalEarnings.toString()),
+      completedTrips: driver.completedTrips,
+      thisMonthEarnings: thisMonthEarnings,
+      thisWeekEarnings: thisWeekEarnings
+    };
+
+    console.log(`💰 Earnings for driver ${driverId}:`, earningsData);
+
+    res.json({
+      success: true,
+      data: earningsData,
+      message: 'Earnings retrieved successfully'
+    });
+
+  } catch (error) {
+    console.error('Get driver earnings error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch earnings'
+    });
+  }
+});
+
+app.post('/loads/:loadId/accept', authenticateToken, async (req, res) => {
+  try {
+    if (req.userEntity.userType !== UserType.DRIVER) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only drivers can accept loads'
+      });
+    }
+
+    const { loadId } = req.params;
+    
+    const load = await Load.findByPk(loadId);
+    if (!load) {
+      return res.status(404).json({
+        success: false,
+        message: 'Load not found'
+      });
+    }
+
+    if (load.status !== LoadStatus.POSTED) {
+      return res.status(400).json({
+        success: false,
+        message: 'Load is no longer available'
+      });
+    }
+
+    // Update load
+    await load.update({
+      status: LoadStatus.ACCEPTED,
+      driverId: req.user.userId,
+      acceptedAt: new Date()
+    });
+
+    // Update driver availability
+    await User.update(
+      { 
+        isAvailable: false,
+        totalTrips: req.userEntity.totalTrips + 1,
+        lastActiveAt: new Date()
+      },
+      { where: { id: req.user.userId } }
+    );
+
+    // Get driver location for broadcast
+    const driverForBroadcast = await User.findByPk(req.user.userId);
+    if (driverForBroadcast && driverForBroadcast.latitude && driverForBroadcast.longitude) {
+      broadcastDriverAvailabilityChange({
+        latitude: driverForBroadcast.latitude,
+        longitude: driverForBroadcast.longitude
+      }, false);
+    }
+
+    // Broadcast status change via WebSocket
+    broadcastStatusChange(loadId, LoadStatus.POSTED, LoadStatus.ACCEPTED, {
+      driverId: req.user.userId,
+      acceptedAt: new Date().toISOString()
+    });
+
+    // Get complete load details with vendor information for driver
+    const completeLoad = await Load.findByPk(loadId, {
+      include: [{
+        model: User,
+        as: 'vendor',
+        attributes: ['id', 'name', 'phone'],
+        include: [{
+          model: Vendor,
+          as: 'vendorProfile',
+          attributes: ['businessName', 'gstNumber', 'rating', 'totalOrders']
+        }]
+      }]
+    });
+
+    // Get driver information for vendor notification
+    const driverUser = await User.findByPk(req.user.userId, {
+      attributes: ['id', 'name', 'phone'],
+      include: [{
+        model: Driver,
+        as: 'driverProfile',
+        attributes: ['vehicleType', 'vehicleNumber', 'licenseNumber', 'rating', 'totalTrips']
+      }]
+    });
+    
+    const driver = {
+      ...driverUser.toJSON(),
+      ...driverUser.driverProfile?.toJSON()
+    };
+
+    console.log(`✅ Load ${loadId} accepted by driver ${req.user.userId}`);
+    console.log(`📱 Load acceptance details:`);
+    console.log(`   🚛 Driver: ${driver.name} (${driver.phone})`);
+    console.log(`   🏭 Vendor: ${completeLoad.vendor.name} (${completeLoad.vendor.phone})`);
+    console.log(`   📦 Load: ${completeLoad.weight}kg from ${completeLoad.pickupAddress} to ${completeLoad.dropAddress}`);
+    console.log(`   💰 Budget: ₹${completeLoad.budget}`);
+
+    // 🔔 Send push notification to vendor that driver accepted
+    try {
+      const vendorNotification = pushNotificationService.templates.driverAcceptedLoad(
+        { id: driver.id, name: driver.name },
+        { id: completeLoad.id, dropAddress: completeLoad.dropAddress }
+      );
+      await pushNotificationService.sendToUser(load.vendorId, vendorNotification);
+      console.log(`📬 Notified vendor about driver acceptance`);
+    } catch (notifError) {
+      console.error('⚠️ Error sending acceptance notification:', notifError);
+    }
+
+    // 🔔 Send confirmation to driver
+    try {
+      const driverNotification = pushNotificationService.templates.loadAssigned(
+        completeLoad,
+        driver.name
+      );
+      await pushNotificationService.sendToUser(req.user.userId, driverNotification);
+      console.log(`📬 Sent load assignment confirmation to driver`);
+    } catch (notifError) {
+      console.error('⚠️ Error sending driver confirmation:', notifError);
+    }
+
+    // Store acceptance notification in Redis for real-time updates
+    await redisClient.setEx(`load_acceptance:${loadId}`, 3600, JSON.stringify({
+      loadId,
+      driverId: req.user.userId,
+      driverName: driver.name,
+      driverPhone: driver.phone,
+      vehicleInfo: `${driver.vehicleType} - ${driver.vehicleNumber}`,
+      acceptedAt: new Date().toISOString(),
+      vendorId: load.vendorId
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        load: {
+          ...completeLoad.toJSON(),
+          // Full contact details for driver
+          pickupContactDetails: {
+            name: completeLoad.pickupContactName,
+            phone: completeLoad.pickupContactPhone,
+            address: completeLoad.pickupAddress,
+            coordinates: {
+              lat: completeLoad.pickupLat,
+              lng: completeLoad.pickupLng
+            }
+          },
+          dropContactDetails: {
+            name: completeLoad.dropContactName,
+            phone: completeLoad.dropContactPhone,
+            address: completeLoad.dropAddress,
+            coordinates: {
+              lat: completeLoad.dropLat,
+              lng: completeLoad.dropLng
+            }
+          }
+        },
+        vendor: {
+          id: completeLoad.vendor.id,
+          name: completeLoad.vendor.name,
+          phone: completeLoad.vendor.phone,
+          businessName: completeLoad.vendor.vendorProfile?.businessName,
+          gstNumber: completeLoad.vendor.vendorProfile?.gstNumber,
+          rating: completeLoad.vendor.vendorProfile?.rating
+        },
+        driver: driver,
+        nextSteps: [
+          '📞 Contact pickup person before arriving',
+          '📍 Start location tracking during trip',
+          '📷 Confirm pickup with photo',
+          '🚛 Update location during transit',
+          '📷 Confirm delivery with photo'
+        ]
+      },
+      message: 'Load accepted successfully! You now have access to complete contact details and trip information.'
+    });
+
+  } catch (error) {
+    console.error('Accept load error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+});
+
+// Live Location Tracking Endpoint
+app.post('/loads/:loadId/update-location', authenticateToken, async (req, res) => {
+  try {
+    if (req.userEntity.userType !== UserType.DRIVER) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only drivers can update location'
+      });
+    }
+
+    const { loadId } = req.params;
+    const { latitude, longitude } = req.body;
+
+    if (!latitude || !longitude) {
+      return res.status(400).json({
+        success: false,
+        message: 'Latitude and longitude are required'
+      });
+    }
+
+    const load = await Load.findOne({
+      where: { 
+        id: loadId, 
+        driverId: req.user.userId
+      }
+    });
+
+    if (!load) {
+      return res.status(404).json({
+        success: false,
+        message: 'Load not found or not assigned to you'
+      });
+    }
+
+    // Check if load is in a state where location can be updated
+    const activeStatuses = [LoadStatus.ACCEPTED, LoadStatus.PICKED_UP, LoadStatus.IN_PROGRESS, LoadStatus.IN_TRANSIT];
+    if (!activeStatuses.includes(load.status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot update location for ${load.status} load`,
+        currentStatus: load.status
+      });
+    }
+
+    await load.update({
+      driverCurrentLat: latitude,
+      driverCurrentLng: longitude,
+      lastLocationUpdate: new Date()
+    });
+
+    // Cache location in Redis for real-time tracking
+    await RedisLogger.set(`driver_location:${req.user.userId}`, {
+      latitude,
+      longitude,
+      timestamp: new Date().toISOString(),
+      loadId
+    }, 300); // 5 minutes
+
+    console.log(`📍 Location updated for driver ${req.user.userId} on load ${loadId}`);
+
+    res.json({
+      success: true,
+      message: 'Location updated successfully'
+    });
+
+  } catch (error) {
+    console.error('Update location error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update location'
+    });
+  }
+});
+
+// Get Live Location for Vendor
+app.get('/loads/:loadId/driver-location', authenticateToken, async (req, res) => {
+  try {
+    const { loadId } = req.params;
+
+    const load = await Load.findOne({
+      where: { 
+        id: loadId, 
+        vendorId: req.user.userId 
+      },
+      include: [{
+        model: User,
+        as: 'driver',
+        attributes: ['id', 'name', 'phone'],
+        include: [{
+          model: Driver,
+          as: 'driverProfile',
+          attributes: ['vehicleType', 'vehicleNumber']
+        }]
+      }]
+    });
+
+    if (!load) {
+      return res.status(404).json({
+        success: false,
+        message: 'Load not found or not authorized'
+      });
+    }
+
+    if (!load.driverId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Load not yet accepted by any driver'
+      });
+    }
+
+    // Get cached location from Redis
+    const cachedLocation = await RedisLogger.get(`driver_location:${load.driverId}`);
+    
+    let locationData = {
+      latitude: load.driverCurrentLat,
+      longitude: load.driverCurrentLng,
+      lastUpdate: load.lastLocationUpdate,
+      isLive: false
+    };
+
+    if (cachedLocation) {
+      const parsed = JSON.parse(cachedLocation);
+      locationData = {
+        latitude: parsed.latitude,
+        longitude: parsed.longitude,
+        lastUpdate: parsed.timestamp,
+        isLive: true
+      };
+    }
+
+    // Flatten driver data
+    const driverData = load.driver ? {
+      id: load.driver.id,
+      name: load.driver.name,
+      phone: load.driver.phone,
+      vehicleType: load.driver.driverProfile?.vehicleType,
+      vehicleNumber: load.driver.driverProfile?.vehicleNumber
+    } : null;
+
+    res.json({
+      success: true,
+      data: {
+        load: {
+          id: load.id,
+          status: load.status,
+          isPickedUp: load.isPickedUp,
+          isDropped: load.isDropped
+        },
+        driver: driverData,
+        location: locationData
+      }
+    });
+
+  } catch (error) {
+    console.error('Get driver location error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get driver location'
+    });
+  }
+});
+
+// Pickup Confirmation Endpoint
+app.post('/loads/:loadId/confirm-pickup', authenticateToken, async (req, res) => {
+  try {
+    if (req.userEntity.userType !== UserType.DRIVER) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only drivers can confirm pickup'
+      });
+    }
+
+    const { loadId } = req.params;
+    const { notes } = req.body;
+
+    const load = await Load.findOne({
+      where: { 
+        id: loadId, 
+        driverId: req.user.userId,
+        status: LoadStatus.ACCEPTED
+      }
+    });
+
+    if (!load) {
+      return res.status(404).json({
+        success: false,
+        message: 'Load not found or not in accepted status'
+      });
+    }
+
+    const updateData = {
+      isPickedUp: true,
+      pickupConfirmedAt: new Date(),
+      status: LoadStatus.IN_PROGRESS
+    };
+
+    await load.update(updateData);
+
+    console.log(`📦 Pickup confirmed for load ${loadId} by driver ${req.user.userId}`);
+
+    res.json({
+      success: true,
+      message: 'Pickup confirmed successfully',
+      data: {
+        pickupConfirmedAt: updateData.pickupConfirmedAt,
+        status: LoadStatus.IN_PROGRESS
+      }
+    });
+
+  } catch (error) {
+    console.error('Confirm pickup error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to confirm pickup'
+    });
+  }
+});
+
+// Drop Confirmation Endpoint
+app.post('/loads/:loadId/confirm-drop', authenticateToken, async (req, res) => {
+  try {
+    if (req.userEntity.userType !== UserType.DRIVER) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only drivers can confirm drop'
+      });
+    }
+
+    const { loadId } = req.params;
+    const { notes } = req.body;
+
+    const load = await Load.findOne({
+      where: { 
+        id: loadId, 
+        driverId: req.user.userId,
+        status: LoadStatus.IN_PROGRESS,
+        isPickedUp: true
+      }
+    });
+
+    if (!load) {
+      return res.status(404).json({
+        success: false,
+        message: 'Load not found, not in progress, or pickup not confirmed'
+      });
+    }
+
+    const updateData = {
+      isDropped: true,
+      dropConfirmedAt: new Date(),
+      status: LoadStatus.DELIVERED,
+      completedAt: new Date()
+    };
+
+    await load.update(updateData);
+
+    // Update driver stats and make available again
+    await User.update({
+      isAvailable: true,
+      completedTrips: req.userEntity.completedTrips + 1,
+      totalEarnings: parseFloat(req.userEntity.totalEarnings || 0) + parseFloat(load.budget),
+      lastActiveAt: new Date()
+    }, { where: { id: req.user.userId } });
+
+    console.log(`✅ Drop confirmed for load ${loadId} by driver ${req.user.userId}`);
+
+    res.json({
+      success: true,
+      message: 'Drop confirmed successfully. Load completed!',
+      data: {
+        dropConfirmedAt: updateData.dropConfirmedAt,
+        status: LoadStatus.DELIVERED,
+        earnings: load.budget
+      }
+    });
+
+  } catch (error) {
+    console.error('Confirm drop error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to confirm drop'
+    });
+  }
+});
+
+app.put('/loads/:loadId/status', authenticateToken, async (req, res) => {
+  try {
+    const { loadId } = req.params;
+    const { status } = req.body;
+    
+    const validStatuses = Object.values(LoadStatus);
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid status'
+      });
+    }
+
+    const load = await Load.findByPk(loadId);
+    if (!load) {
+      return res.status(404).json({
+        success: false,
+        message: 'Load not found'
+      });
+    }
+
+    // Check permissions
+    if (req.userEntity.userType === UserType.DRIVER && load.driverId !== req.user.userId) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only update your own loads'
+      });
+    }
+
+    if (req.userEntity.userType === UserType.VENDOR && load.vendorId !== req.user.userId) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only update your own loads'
+      });
+    }
+
+    // Update load status
+    await load.update({ status });
+
+    // If load is completed, make driver available again
+    if (status === LoadStatus.COMPLETED && load.driverId) {
+      await User.update(
+        { 
+          isAvailable: true,
+          completedTrips: req.userEntity.completedTrips + 1,
+          lastActiveAt: new Date()
+        },
+        { where: { id: load.driverId } }
+      );
+
+      // Broadcast driver availability change
+      const completedDriver = await User.findByPk(load.driverId);
+      if (completedDriver && completedDriver.latitude && completedDriver.longitude) {
+        broadcastDriverAvailabilityChange({
+          latitude: completedDriver.latitude,
+          longitude: completedDriver.longitude
+        }, true);
+      }
+    }
+
+    console.log(`📊 Load ${loadId} status updated to ${status}`);
+
+    res.json({
+      success: true,
+      data: load,
+      message: 'Load status updated successfully'
+    });
+
+  } catch (error) {
+    console.error('Update load status error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+});
+
+// Enhanced driver status update endpoint with automatic location sharing
+app.post('/loads/:loadId/driver-status-update', authenticateToken, async (req, res) => {
+  try {
+    const { loadId } = req.params;
+    const { status, location } = req.body;
+    
+    // Only drivers can use this endpoint
+    if (req.userEntity.userType !== UserType.DRIVER) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only drivers can update load status'
+      });
+    }
+
+    const validStatuses = ['picked_up', 'in_transit', 'delivered'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid status. Must be picked_up, in_transit, or delivered'
+      });
+    }
+
+    const load = await Load.findByPk(loadId);
+    if (!load) {
+      return res.status(404).json({
+        success: false,
+        message: 'Load not found'
+      });
+    }
+
+    // Check if driver is assigned to this load
+    if (load.driverId !== req.user.userId) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only update loads assigned to you'
+      });
+    }
+
+    // Update load status
+    await load.update({ 
+      status,
+      updatedAt: new Date()
+    });
+
+    // Store status change event
+    const statusEvent = {
+      loadId,
+      driverId: req.user.userId,
+      vendorId: load.vendorId,
+      status,
+      timestamp: new Date().toISOString(),
+      location: location || null
+    };
+
+    // Store in Redis for real-time updates
+    await redisClient.setEx(
+      `load_status:${loadId}`,
+      3600, // 1 hour
+      JSON.stringify(statusEvent)
+    );
+
+    // Notify vendor about status change
+    await redisClient.publish(
+      `status_updates:${load.vendorId}`,
+      JSON.stringify({
+        type: 'load_status_update',
+        loadId,
+        status,
+        driverName: req.userEntity.name,
+        timestamp: statusEvent.timestamp,
+        message: getStatusUpdateMessage(status, req.userEntity.name)
+      })
+    );
+
+    // If picked up, start automatic location sharing
+    if (status === 'picked_up') {
+      console.log(`🚚 Load ${loadId} picked up - location sharing will start automatically`);
+      
+      // Set driver as unavailable for new loads
+      await User.update(
+        { isAvailable: false },
+        { where: { id: req.user.userId } }
+      );
+
+      // 🔔 Notify vendor that load was picked up
+      try {
+        const driver = await User.findByPk(req.user.userId, {
+          attributes: ['id', 'name']
+        });
+        const vendorNotification = pushNotificationService.templates.loadPickedUp(
+          { id: driver.id, name: driver.name },
+          { id: load.id, dropAddress: load.dropAddress }
+        );
+        await pushNotificationService.sendToUser(load.vendorId, vendorNotification);
+        console.log(`📬 Notified vendor about load pickup`);
+      } catch (notifError) {
+        console.error('⚠️ Error sending pickup notification:', notifError);
+      }
+    }
+
+    // If delivered, stop location sharing and update driver stats
+    if (status === 'delivered') {
+      console.log(`✅ Load ${loadId} delivered - stopping location sharing`);
+      
+      // Clean up location tracking data
+      await redisClient.del(`driver_location:${req.user.userId}`);
+      await redisClient.del(`tracking:${loadId}`);
+      
+      // Update driver stats
+      await User.update(
+        { 
+          isAvailable: true,
+          completedTrips: req.userEntity.completedTrips + 1,
+          lastActiveAt: new Date()
+        },
+        { where: { id: req.user.userId } }
+      );
+
+      // 🔔 Notify vendor that load was delivered
+      try {
+        const driver = await User.findByPk(req.user.userId, {
+          attributes: ['id', 'name']
+        });
+        const vendorNotification = pushNotificationService.templates.loadDelivered(
+          { id: driver.id, name: driver.name },
+          { id: load.id, dropAddress: load.dropAddress }
+        );
+        await pushNotificationService.sendToUser(load.vendorId, vendorNotification);
+        console.log(`📬 Notified vendor about load delivery`);
+      } catch (notifError) {
+        console.error('⚠️ Error sending delivery notification:', notifError);
+      }
+    }
+
+    console.log(`📊 Driver ${req.userEntity.name} updated load ${loadId} status to ${status}`);
+
+    res.json({
+      success: true,
+      data: {
+        load,
+        statusEvent,
+        message: `Load status updated to ${status} successfully`
+      }
+    });
+
+  } catch (error) {
+    console.error('Driver status update error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+});
+
+// Helper function for status update messages
+function getStatusUpdateMessage(status, driverName) {
+  switch (status) {
+    case 'picked_up':
+      return `📦 ${driverName} has picked up your load and is now sharing live location`;
+    case 'in_transit':
+      return `🚛 ${driverName} is in transit with your load`;
+    case 'delivered':
+      return `✅ ${driverName} has delivered your load successfully`;
+    default:
+      return `📋 Load status updated to ${status}`;
+  }
+}
+
+// ===================== LOCATION ENDPOINTS =====================
+
+// Enhanced location update endpoint with normalized schema
+app.post('/location/update', authenticateToken, async (req, res) => {
+  const transaction = await sequelize.transaction();
+  
+  try {
+    if (req.userEntity.userType !== UserType.DRIVER) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only drivers can update location'
+      });
+    }
+
+    const { 
+      latitude, 
+      longitude, 
+      accuracy, 
+      speed, 
+      heading, 
+      address,
+      loadId // Optional: if tracking a specific load
+    } = req.body;
+    
+    if (!latitude || !longitude) {
+      return res.status(400).json({
+        success: false,
+        message: 'Latitude and longitude are required'
+      });
+    }
+
+    const driverId = req.user.userId;
+
+    // 1. Update or create current location in driver_locations table
+    await DriverLocation.upsert({
+      driverId,
+      latitude: parseFloat(latitude),
+      longitude: parseFloat(longitude),
+      accuracy: accuracy ? parseFloat(accuracy) : null,
+      speed: speed ? parseFloat(speed) : null,
+      heading: heading ? parseFloat(heading) : null,
+      address,
+      isAvailable: true,
+      lastUpdated: new Date()
+    }, { transaction });
+
+    // 2. Add to location history for tracking
+    await LocationHistory.create({
+      driverId,
+      loadId: loadId || null,
+      latitude: parseFloat(latitude),
+      longitude: parseFloat(longitude),
+      accuracy: accuracy ? parseFloat(accuracy) : null,
+      speed: speed ? parseFloat(speed) : null,
+      heading: heading ? parseFloat(heading) : null,
+      timestamp: new Date(),
+      eventType: 'position_update'
+    }, { transaction });
+
+    // 3. Store in Redis for fast access
+    const locationData = {
+      latitude: parseFloat(latitude),
+      longitude: parseFloat(longitude),
+      accuracy,
+      speed,
+      heading,
+      address,
+      updatedAt: new Date().toISOString()
+    };
+
+    await RedisLogger.set(
+      `driver_location:${driverId}`,
+      JSON.stringify(locationData),
+      300 // 5 minutes TTL
+    );
+
+    await transaction.commit();
+
+    // 4. Broadcast location update via WebSocket if tracking a specific load
+    if (loadId) {
+      const broadcastData = {
+        driverId,
+        latitude: parseFloat(latitude),
+        longitude: parseFloat(longitude),
+        accuracy,
+        speed,
+        heading,
+        address,
+        timestamp: new Date().toISOString(),
+        loadId
+      };
+      
+      // Broadcast to all clients subscribed to this load
+      broadcastLocationUpdate(loadId, broadcastData);
+      console.log(`📡 Location update broadcasted for load ${loadId}`);
+    }
+
+    res.json({
+      success: true,
+      message: 'Location updated successfully',
+      data: {
+        latitude: parseFloat(latitude),
+        longitude: parseFloat(longitude),
+        timestamp: new Date().toISOString()
+      }
+    });
+
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Update location error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update location'
+    });
+  }
+});
+
+// Get available driver count near a location
+app.get('/location/drivers/count', authenticateToken, async (req, res) => {
+  try {
+    const { lat, lng } = req.query;
+
+    if (!lat || !lng) {
+      return res.status(400).json({
+        success: false,
+        message: 'Latitude and longitude are required'
+      });
+    }
+
+    const latitude = parseFloat(lat);
+    const longitude = parseFloat(lng);
+
+    if (isNaN(latitude) || isNaN(longitude)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid latitude or longitude'
+      });
+    }
+
+    // Get all available drivers
+    const availableDrivers = await User.findAll({
+      where: {
+        userType: UserType.DRIVER,
+        isAvailable: true,
+        isApproved: true
+      },
+      include: [{
+        model: Driver,
+        as: 'driverProfile',
+        attributes: ['vehicleType', 'rating']
+      }]
+    });
+
+    // Calculate distances and count drivers within different radii
+    const driversWithDistance = availableDrivers.map(driver => {
+      if (!driver.latitude || !driver.longitude) {
+        return null;
+      }
+
+      const distance = calculateDistance(
+        latitude,
+        longitude,
+        driver.latitude,
+        driver.longitude
+      );
+
+      return {
+        driverId: driver.id,
+        distance: distance
+      };
+    }).filter(d => d !== null);
+
+    // Count drivers within 100km and 150km
+    const within100km = driversWithDistance.filter(d => d.distance <= 100).length;
+    const within150km = driversWithDistance.filter(d => d.distance <= 150).length;
+
+    console.log(`📊 Driver count at (${latitude}, ${longitude}): ${within100km} within 100km, ${within150km} within 150km`);
+
+    res.json({
+      success: true,
+      data: {
+        within100km,
+        within150km,
+        location: {
+          latitude,
+          longitude
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Get driver count error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get driver count'
+    });
+  }
+});
+
+// Debug endpoint to test geocoding
+app.post('/debug/geocode', async (req, res) => {
+  try {
+    const { address } = req.body;
+    if (!address) {
+      return res.status(400).json({
+        success: false,
+        message: 'Address is required'
+      });
+    }
+    
+    console.log(`🧪 DEBUG: Testing geocoding for "${address}"`);
+    const coords = await geocodeAddress(address);
+    console.log(`🧪 DEBUG: Result: ${coords.lat}, ${coords.lng}`);
+    
+    res.json({
+      success: true,
+      address: address,
+      coordinates: coords,
+      message: 'Geocoding test completed'
+    });
+  } catch (error) {
+    console.error('Debug geocoding error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Geocoding test failed'
+    });
+  }
+});
+
+// Get detailed load information - for both drivers and vendors
+app.get('/loads/:loadId/details', authenticateToken, async (req, res) => {
+  try {
+    const { loadId } = req.params;
+    const userId = req.user.userId;
+    const userType = req.userEntity.userType;
+
+    // Find the load with all related information
+    const load = await Load.findByPk(loadId, {
+      include: [
+        {
+          model: User,
+          as: 'vendor',
+          attributes: ['id', 'name', 'phone'],
+          include: [{
+            model: Vendor,
+            as: 'vendorProfile',
+            attributes: ['businessName', 'gstNumber', 'rating', 'totalOrders']
+          }]
+        },
+        {
+          model: User,
+          as: 'driver',
+          attributes: ['id', 'name', 'phone'],
+          include: [{
+            model: Driver,
+            as: 'driverProfile',
+            attributes: ['vehicleType', 'vehicleNumber', 'licenseNumber', 'rating', 'totalTrips']
+          }]
+        }
+      ]
+    });
+
+    if (!load) {
+      return res.status(404).json({
+        success: false,
+        message: 'Load not found'
+      });
+    }
+
+    // Check access permissions
+    const hasAccess = (userType === UserType.VENDOR && load.vendorId === userId) ||
+                     (userType === UserType.DRIVER && load.driverId === userId);
+
+    if (!hasAccess) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have access to this load'
+      });
+    }
+
+    // Prepare detailed response based on user type
+    let responseData = {
+      load: {
+        id: load.id,
+        status: load.status,
+        weight: load.weight,
+        description: load.description,
+        vehicleTypeRequired: load.vehicleTypeRequired,
+        priority: load.priority,
+        budget: load.budget,
+        specialInstructions: load.specialInstructions,
+        
+        // Pickup details
+        pickupAddress: load.pickupAddress,
+        pickupDate: load.pickupDate,
+        pickupLat: load.pickupLat,
+        pickupLng: load.pickupLng,
+        
+        // Drop details
+        dropAddress: load.dropAddress,
+        dropLat: load.dropLat,
+        dropLng: load.dropLng,
+        
+        // Timestamps
+        createdAt: load.createdAt,
+        acceptedAt: load.acceptedAt,
+        startedAt: load.startedAt,
+        completedAt: load.completedAt,
+        
+        // Tracking info
+        isPickedUp: load.isPickedUp,
+        isDropped: load.isDropped,
+        pickupConfirmedAt: load.pickupConfirmedAt,
+        dropConfirmedAt: load.dropConfirmedAt,
+        driverCurrentLat: load.driverCurrentLat,
+        driverCurrentLng: load.driverCurrentLng,
+        lastLocationUpdate: load.lastLocationUpdate
+      }
+    };
+
+    if (userType === UserType.DRIVER) {
+      // Driver view - show vendor details and full contact information
+      responseData.vendor = load.vendor ? {
+        id: load.vendor.id,
+        name: load.vendor.name,
+        phone: load.vendor.phone,
+        businessName: load.vendor.vendorProfile?.businessName,
+        gstNumber: load.vendor.vendorProfile?.gstNumber,
+        rating: load.vendor.vendorProfile?.rating,
+        totalOrders: load.vendor.vendorProfile?.totalOrders
+      } : null;
+      responseData.contactDetails = {
+        pickup: {
+          name: load.pickupContactName,
+          phone: load.pickupContactPhone,
+          address: load.pickupAddress,
+          coordinates: { lat: load.pickupLat, lng: load.pickupLng }
+        },
+        drop: {
+          name: load.dropContactName,
+          phone: load.dropContactPhone,
+          address: load.dropAddress,
+          coordinates: { lat: load.dropLat, lng: load.dropLng }
+        }
+      };
+      responseData.instructions = [
+        '📞 Contact pickup person before arriving',
+        '📍 Use GPS to navigate to pickup location',
+        '📷 Take photo when confirming pickup',
+        '🚛 Keep location tracking on during transit',
+        '📷 Take photo when confirming delivery',
+        '📱 Contact vendor if any issues arise'
+      ];
+    } else {
+      // Vendor view - show driver details and tracking information
+      responseData.driver = load.driver ? {
+        id: load.driver.id,
+        name: load.driver.name,
+        phone: load.driver.phone,
+        vehicleType: load.driver.driverProfile?.vehicleType,
+        vehicleNumber: load.driver.driverProfile?.vehicleNumber,
+        licenseNumber: load.driver.driverProfile?.licenseNumber,
+        rating: load.driver.driverProfile?.rating,
+        totalTrips: load.driver.driverProfile?.totalTrips
+      } : null;
+      responseData.trackingInfo = {
+        canTrackLive: !!(load.driverCurrentLat && load.driverCurrentLng),
+        lastKnownLocation: load.driverCurrentLat && load.driverCurrentLng ? {
+          lat: load.driverCurrentLat,
+          lng: load.driverCurrentLng,
+          lastUpdate: load.lastLocationUpdate
+        } : null,
+        pickupStatus: load.isPickedUp ? 'Confirmed' : 'Pending',
+        deliveryStatus: load.isDropped ? 'Confirmed' : 'Pending'
+      };
+      responseData.instructions = [
+        '📱 You can track driver location in real-time',
+        '📞 Driver will contact pickup/drop persons',
+        '📷 Photos will be taken for pickup/delivery confirmation',
+        '🔔 You\'ll receive notifications for status updates',
+        '📱 Contact driver if needed: ' + (responseData.driver?.phone || 'Not available')
+      ];
+    }
+
+    // Add load progress information
+    const statusProgress = {
+      'posted': { step: 1, total: 6, description: 'Load posted, waiting for driver' },
+      'accepted': { step: 2, total: 6, description: 'Driver assigned, preparing for pickup' },
+      'picked_up': { step: 3, total: 6, description: 'Load picked up, in transit' },
+      'in_transit': { step: 4, total: 6, description: 'En route to destination' },
+      'delivered': { step: 5, total: 6, description: 'Delivered, awaiting confirmation' },
+      'completed': { step: 6, total: 6, description: 'Trip completed successfully' }
+    };
+
+    responseData.progress = statusProgress[load.status] || statusProgress['posted'];
+
+    console.log(`📋 Load details accessed by ${userType} ${userId} for load ${loadId}`);
+
+    res.json({
+      success: true,
+      data: responseData,
+      message: 'Load details retrieved successfully'
+    });
+
+  } catch (error) {
+    console.error('Get load details error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get load details'
+    });
+  }
+});
+
+// Get acceptance notifications for vendor
+app.get('/loads/:loadId/acceptance-notification', authenticateToken, async (req, res) => {
+  try {
+    const { loadId } = req.params;
+    
+    if (req.userEntity.userType !== UserType.VENDOR) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only vendors can access acceptance notifications'
+      });
+    }
+
+    // Check if load belongs to vendor
+    const load = await Load.findOne({
+      where: { id: loadId, vendorId: req.user.userId }
+    });
+
+    if (!load) {
+      return res.status(404).json({
+        success: false,
+        message: 'Load not found or not accessible'
+      });
+    }
+
+    // Get acceptance notification from Redis
+    const acceptanceData = await redisClient.get(`load_acceptance:${loadId}`);
+    
+    if (acceptanceData) {
+      const acceptance = JSON.parse(acceptanceData);
+      res.json({
+        success: true,
+        data: acceptance,
+        message: 'Acceptance notification found'
+      });
+    } else {
+      res.json({
+        success: true,
+        data: null,
+        message: 'No recent acceptance notification'
+      });
+    }
+
+  } catch (error) {
+    console.error('Get acceptance notification error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get acceptance notification'
+    });
+  }
+});
+
+// ===================== NOTIFICATION ENDPOINTS =====================
+
+// Get latest notifications for vendor
+app.get('/notifications/vendor/:vendorId/latest', authenticateToken, async (req, res) => {
+  try {
+    const { vendorId } = req.params;
+    
+    // Verify vendor is requesting their own notifications
+    if (req.userEntity.userType !== UserType.VENDOR || req.user.userId !== vendorId) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Can only access your own notifications.'
+      });
+    }
+
+    // Get all loads for this vendor that were recently accepted
+    const recentLoads = await Load.findAll({
+      where: {
+        vendorId: vendorId,
+        status: {
+          [Sequelize.Op.in]: [LoadStatus.ACCEPTED, LoadStatus.IN_PROGRESS, LoadStatus.DELIVERED]
+        },
+        acceptedAt: {
+          [Sequelize.Op.gte]: new Date(Date.now() - 24 * 60 * 60 * 1000) // Last 24 hours
+        }
+      },
+      include: [{
+        model: User,
+        as: 'driver',
+        attributes: ['id', 'name', 'phone'],
+        include: [{
+          model: Driver,
+          as: 'driverProfile',
+          attributes: ['vehicleType', 'vehicleNumber', 'rating']
+        }]
+      }],
+      order: [['acceptedAt', 'DESC']],
+      limit: 10
+    });
+
+    // Format notifications
+    const notifications = recentLoads.map(load => {
+      const driverData = load.driver ? {
+        id: load.driver.id,
+        name: load.driver.name,
+        phone: load.driver.phone,
+        vehicleType: load.driver.driverProfile?.vehicleType,
+        vehicleNumber: load.driver.driverProfile?.vehicleNumber,
+        rating: load.driver.driverProfile?.rating
+      } : null;
+      
+      return {
+        id: `notif_${load.id}`,
+        type: 'load_accepted',
+        loadId: load.id,
+        title: '🚛 Load Accepted',
+        message: `${driverData?.name || 'A driver'} has accepted your load`,
+        timestamp: load.acceptedAt,
+        data: {
+          load: {
+            id: load.id,
+            status: load.status,
+            pickupAddress: load.pickupAddress,
+            dropAddress: load.dropAddress,
+            weight: load.weight,
+            budget: load.budget
+          },
+          driver: driverData ? {
+            id: driverData.id,
+            name: driverData.name,
+            phone: driverData.phone,
+            vehicleInfo: `${driverData.vehicleType || 'Unknown'} - ${driverData.vehicleNumber || 'Unknown'}`,
+            rating: driverData.rating
+          } : null
+        },
+        read: false
+      };
+    });
+
+    // Also check Redis for real-time acceptance notifications
+    const redisNotifications = [];
+    for (const load of recentLoads) {
+      const acceptanceData = await redisClient.get(`load_acceptance:${load.id}`);
+      if (acceptanceData) {
+        try {
+          const acceptance = JSON.parse(acceptanceData);
+          redisNotifications.push({
+            id: `realtime_${load.id}`,
+            type: 'load_acceptance_realtime',
+            loadId: load.id,
+            title: '📱 Real-time Update',
+            message: `${acceptance.driverName} is preparing for pickup`,
+            timestamp: acceptance.acceptedAt,
+            data: acceptance,
+            read: false
+          });
+        } catch (e) {
+          console.error('Error parsing Redis notification:', e);
+        }
+      }
+    }
+
+    // Combine and sort all notifications
+    const allNotifications = [...notifications, ...redisNotifications]
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+    console.log(`📬 Retrieved ${allNotifications.length} notifications for vendor ${vendorId}`);
+
+    res.json({
+      success: true,
+      data: allNotifications,
+      count: allNotifications.length,
+      message: allNotifications.length > 0 
+        ? `Found ${allNotifications.length} notifications` 
+        : 'No new notifications'
+    });
+
+  } catch (error) {
+    console.error('Get vendor notifications error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get notifications'
+    });
+  }
+});
+
+// Get latest notifications for driver
+app.get('/notifications/driver/:driverId/latest', authenticateToken, async (req, res) => {
+  try {
+    const { driverId } = req.params;
+    
+    // Verify driver is requesting their own notifications
+    if (req.userEntity.userType !== UserType.DRIVER || req.user.userId !== driverId) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Can only access your own notifications.'
+      });
+    }
+
+    // Get driver's active loads
+    const activeLoads = await Load.findAll({
+      where: {
+        driverId: driverId,
+        status: {
+          [Sequelize.Op.in]: [LoadStatus.ACCEPTED, LoadStatus.IN_PROGRESS]
+        }
+      },
+      include: [{
+        model: User,
+        as: 'vendor',
+        attributes: ['id', 'name', 'phone'],
+        include: [{
+          model: Vendor,
+          as: 'vendorProfile',
+          attributes: ['businessName']
+        }]
+      }],
+      order: [['acceptedAt', 'DESC']],
+      limit: 10
+    });
+
+    // Format notifications
+    const notifications = activeLoads.map(load => {
+      const vendorData = load.vendor ? {
+        id: load.vendor.id,
+        name: load.vendor.name,
+        phone: load.vendor.phone,
+        businessName: load.vendor.vendorProfile?.businessName
+      } : null;
+      
+      return {
+        id: `notif_${load.id}`,
+        type: 'active_load',
+        loadId: load.id,
+        title: load.isPickedUp ? '🚛 In Transit' : '📦 Ready for Pickup',
+        message: load.isPickedUp 
+          ? `En route to ${load.dropAddress}`
+          : `Pickup from ${load.pickupAddress}`,
+        timestamp: load.acceptedAt,
+        data: {
+          load: {
+            id: load.id,
+            status: load.status,
+            isPickedUp: load.isPickedUp,
+            isDropped: load.isDropped,
+            pickupAddress: load.pickupAddress,
+            dropAddress: load.dropAddress
+          },
+          vendor: vendorData
+        },
+        read: false
+      };
+    });
+
+    console.log(`📬 Retrieved ${notifications.length} notifications for driver ${driverId}`);
+
+    res.json({
+      success: true,
+      data: notifications,
+      count: notifications.length,
+      message: notifications.length > 0 
+        ? `Found ${notifications.length} active loads` 
+        : 'No active loads'
+    });
+
+  } catch (error) {
+    console.error('Get driver notifications error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get notifications'
+    });
+  }
+});
+
+// ===================== RATING ENDPOINTS =====================
+
+// Driver rates vendor after completing load
+app.post('/loads/:loadId/rate-vendor', authenticateToken, async (req, res) => {
+  try {
+    const { loadId } = req.params;
+    const { rating, feedback } = req.body;
+
+    // Only drivers can rate vendors
+    if (req.userEntity.userType !== UserType.DRIVER) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only drivers can rate vendors'
+      });
+    }
+
+    // Validate rating
+    if (!rating || rating < 1 || rating > 5) {
+      return res.status(400).json({
+        success: false,
+        message: 'Rating must be between 1 and 5'
+      });
+    }
+
+    // Find the load and verify driver is assigned
+    const load = await Load.findOne({
+      where: { 
+        id: loadId, 
+        driverId: req.user.userId,
+        status: LoadStatus.DELIVERED // Can only rate after delivery
+      }
+    });
+
+    if (!load) {
+      return res.status(404).json({
+        success: false,
+        message: 'Load not found, not assigned to you, or not yet delivered'
+      });
+    }
+
+    // Get vendor to update rating
+    const vendor = await User.findByPk(load.vendorId);
+    if (!vendor) {
+      return res.status(404).json({
+        success: false,
+        message: 'Vendor not found'
+      });
+    }
+
+    // Calculate new average rating
+    const currentRating = parseFloat(vendor.rating) || 5.0;
+    const totalOrders = vendor.totalOrders || 0;
+    const newTotalOrders = totalOrders + 1;
+    const newRating = ((currentRating * totalOrders) + rating) / newTotalOrders;
+
+    // Update vendor rating
+    await vendor.update({
+      rating: newRating,
+      totalOrders: newTotalOrders
+    });
+
+    // Store rating in Redis for analytics
+    await redisClient.setEx(
+      `vendor_rating:${load.vendorId}:${loadId}`,
+      86400 * 30, // 30 days
+      JSON.stringify({
+        loadId,
+        driverId: req.user.userId,
+        driverName: req.userEntity.name,
+        rating,
+        feedback: feedback || null,
+        timestamp: new Date().toISOString()
+      })
+    );
+
+    console.log(`⭐ Driver ${req.user.userId} rated vendor ${load.vendorId} with ${rating} stars for load ${loadId}`);
+
+    res.json({
+      success: true,
+      data: {
+        newRating: newRating.toFixed(2),
+        totalOrders: newTotalOrders
+      },
+      message: 'Vendor rated successfully'
+    });
+
+  } catch (error) {
+    console.error('Rate vendor error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to rate vendor'
+    });
+  }
+});
+
+// Vendor rates driver after completing load
+app.post('/loads/:loadId/rate-driver', authenticateToken, async (req, res) => {
+  try {
+    const { loadId } = req.params;
+    const { rating, review, ratingAspects } = req.body;
+
+    // Only vendors can rate drivers
+    if (req.userEntity.userType !== UserType.VENDOR) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only vendors can rate drivers'
+      });
+    }
+
+    // Validate rating
+    if (!rating || rating < 1 || rating > 5 || !Number.isInteger(rating)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Rating must be an integer between 1 and 5'
+      });
+    }
+
+    // Find the load and verify vendor owns it
+    const load = await Load.findOne({
+      where: { 
+        id: loadId, 
+        vendorId: req.user.userId,
+        status: LoadStatus.DELIVERED // Can only rate after delivery
+      }
+    });
+
+    if (!load) {
+      return res.status(404).json({
+        success: false,
+        message: 'Load not found, not owned by you, or not yet delivered'
+      });
+    }
+
+    if (!load.driverId) {
+      return res.status(400).json({
+        success: false,
+        message: 'No driver assigned to this load'
+      });
+    }
+
+    // Check if rating already exists for this load
+    const existingRating = await Rating.findOne({
+      where: { loadId: loadId }
+    });
+
+    if (existingRating) {
+      return res.status(400).json({
+        success: false,
+        message: 'You have already rated this driver for this load'
+      });
+    }
+
+    // Get driver to update rating
+    const driver = await User.findByPk(load.driverId);
+    if (!driver) {
+      return res.status(404).json({
+        success: false,
+        message: 'Driver not found'
+      });
+    }
+
+    // Create the rating entry
+    const newRating = await Rating.create({
+      loadId: loadId,
+      vendorId: req.user.userId,
+      driverId: load.driverId,
+      overallRating: rating,
+      review: review || null,
+      punctualityRating: ratingAspects?.punctuality || null,
+      behaviorRating: ratingAspects?.behavior || null,
+      vehicleConditionRating: ratingAspects?.vehicleCondition || null,
+      careOfGoodsRating: ratingAspects?.careOfGoods || null
+    });
+
+    // Calculate new average rating for the driver
+    const allRatings = await Rating.findAll({
+      where: { driverId: load.driverId },
+      attributes: ['overallRating']
+    });
+
+    const totalRatings = allRatings.length;
+    const sumRatings = allRatings.reduce((sum, r) => sum + r.overallRating, 0);
+    const newAverageRating = totalRatings > 0 ? (sumRatings / totalRatings) : 5.0;
+
+    // Update driver rating in User model
+    await driver.update({
+      rating: newAverageRating.toFixed(2)
+    });
+
+    // Also update Driver model if exists
+    const driverProfile = await Driver.findOne({
+      where: { userId: load.driverId }
+    });
+
+    if (driverProfile) {
+      // Get the load budget to add to earnings
+      const loadBudget = parseFloat(load.budget.toString()) || 0;
+      const newTotalEarnings = parseFloat(driverProfile.totalEarnings.toString()) + loadBudget;
+      
+      await driverProfile.update({
+        rating: newAverageRating.toFixed(2),
+        totalTrips: driverProfile.totalTrips + 1,
+        completedTrips: driverProfile.completedTrips + 1,
+        totalEarnings: newTotalEarnings
+      });
+      console.log(`💰 Driver's earnings updated: +₹${loadBudget}, total=₹${newTotalEarnings}`);
+    }
+
+    // Update vendor's total_orders and completed_orders
+    const vendorProfile = await Vendor.findOne({
+      where: { userId: req.user.userId }
+    });
+
+    if (vendorProfile) {
+      await vendorProfile.update({
+        totalOrders: vendorProfile.totalOrders + 1,
+        completedOrders: vendorProfile.completedOrders + 1
+      });
+      console.log(`📊 Vendor's stats updated: totalOrders=${vendorProfile.totalOrders + 1}, completedOrders=${vendorProfile.completedOrders + 1}`);
+    }
+
+    // Store rating in Redis for quick access
+    await redisClient.setEx(
+      `driver_rating:${load.driverId}:${loadId}`,
+      86400 * 90, // 90 days
+      JSON.stringify({
+        id: newRating.id,
+        loadId,
+        vendorId: req.user.userId,
+        vendorName: req.userEntity.name,
+        rating,
+        review: review || null,
+        ratingAspects: ratingAspects || null,
+        timestamp: new Date().toISOString()
+      })
+    );
+
+    console.log(`⭐ Vendor ${req.user.userId} rated driver ${load.driverId} with ${rating} stars for load ${loadId}`);
+    console.log(`📊 Driver's new average rating: ${newAverageRating.toFixed(2)} (based on ${totalRatings} ratings)`);
+
+    res.json({
+      success: true,
+      data: {
+        ratingId: newRating.id,
+        newAverageRating: parseFloat(newAverageRating.toFixed(2)),
+        totalRatings: totalRatings
+      },
+      message: 'Driver rated successfully'
+    });
+
+  } catch (error) {
+    console.error('❌ Rate driver error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to rate driver',
+      error: error.message
+    });
+  }
+});
+
+// Get driver's ratings and reviews
+app.get('/drivers/:driverId/ratings', authenticateToken, async (req, res) => {
+  try {
+    const { driverId } = req.params;
+
+    // Get all ratings for this driver
+    const ratings = await Rating.findAll({
+      where: { driverId },
+      include: [
+        {
+          model: User,
+          as: 'vendor',
+          attributes: ['id', 'name', 'phone']
+        },
+        {
+          model: Load,
+          as: 'load',
+          attributes: ['id', 'pickupAddress', 'dropAddress', 'deliveredAt']
+        }
+      ],
+      order: [['createdAt', 'DESC']]
+    });
+
+    // Calculate statistics
+    const totalRatings = ratings.length;
+    const avgRating = totalRatings > 0 
+      ? ratings.reduce((sum, r) => sum + r.rating, 0) / totalRatings 
+      : 5.0;
+
+    const ratingDistribution = {
+      5: ratings.filter(r => r.rating === 5).length,
+      4: ratings.filter(r => r.rating === 4).length,
+      3: ratings.filter(r => r.rating === 3).length,
+      2: ratings.filter(r => r.rating === 2).length,
+      1: ratings.filter(r => r.rating === 1).length
+    };
+
+    res.json({
+      success: true,
+      data: {
+        averageRating: parseFloat(avgRating.toFixed(2)),
+        totalRatings,
+        ratingDistribution,
+        ratings: ratings.map(r => ({
+          id: r.id,
+          rating: r.rating,
+          review: r.review,
+          ratingAspects: r.ratingAspects,
+          createdAt: r.createdAt,
+          vendor: {
+            id: r.vendor.id,
+            name: r.vendor.name,
+            phone: r.vendor.phone
+          },
+          load: {
+            id: r.load.id,
+            pickupAddress: r.load.pickupAddress,
+            dropAddress: r.load.dropAddress,
+            deliveredAt: r.load.deliveredAt
+          }
+        }))
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Get driver ratings error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch driver ratings',
+      error: error.message
+    });
+  }
+});
+
+// (Error + 404 handlers moved to the end of the file so all routes are registered first)
+
+// WebSocket client management
+const websocketClients = new Map(); // Map of userId -> WebSocket connection
+const loadSubscriptions = new Map(); // Map of loadId -> Set of userIds
+
+// WebSocket authentication helper
+function authenticateWebSocket(token) {
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    return decoded;
+  } catch (error) {
+    return null;
+  }
+}
+
+// Broadcast location update to subscribed clients
+function broadcastLocationUpdate(loadId, locationData) {
+  const subscribers = loadSubscriptions.get(loadId);
+  if (!subscribers || subscribers.size === 0) return;
+
+  const message = JSON.stringify({
+    type: 'location_update',
+    loadId: loadId,
+    data: locationData,
+    timestamp: new Date().toISOString()
+  });
+
+  subscribers.forEach(userId => {
+    const client = websocketClients.get(userId);
+    if (client && client.readyState === WebSocket.OPEN) {
+      client.send(message);
+    }
+  });
+}
+
+// Broadcast status change to subscribed clients
+// Broadcast driver availability change to all vendors
+function broadcastDriverAvailabilityChange(location, isAvailable) {
+  const message = JSON.stringify({
+    type: 'driver_availability_change',
+    data: {
+      location,
+      isAvailable,
+      timestamp: new Date().toISOString()
+    }
+  });
+
+  // Send to all connected vendor clients
+  websocketClients.forEach((client, userId) => {
+    if (client && client.readyState === WebSocket.OPEN) {
+      // Check if user is a vendor (you could filter by userType if stored)
+      client.send(message);
+    }
+  });
+  
+  console.log(`📡 Broadcasted driver availability change: ${isAvailable ? 'available' : 'unavailable'}`);
+}
+
+function broadcastStatusChange(loadId, oldStatus, newStatus, additionalData = {}) {
+  const subscribers = loadSubscriptions.get(loadId);
+  if (!subscribers || subscribers.size === 0) return;
+  const message = JSON.stringify({
+    type: 'status_change',
+    loadId: loadId,
+    data: {
+      oldStatus,
+      newStatus,
+      ...additionalData
+    },
+    timestamp: new Date().toISOString()
+  });
+
+  subscribers.forEach(userId => {
+    const client = websocketClients.get(userId);
+    if (client && client.readyState === WebSocket.OPEN) {
+      client.send(message);
+    }
+  });
+}
+
+// Initialize and start server
+async function startServer() {
+  try {
+    // Test database connections
+    await sequelize.authenticate();
+    console.log('🗄️  PostgreSQL connection established');
+
+    // Sync database models (create tables if they don't exist)
+    // Using alter: false to avoid schema conflicts with existing views
+    await sequelize.sync({ alter: false });
+    console.log('🗄️  Database models synchronized');
+
+    // Create HTTP server
+    const server = http.createServer(app);
+
+    // Create WebSocket server
+    const wss = new WebSocket.Server({ 
+      server,
+      path: '/ws' // WebSocket endpoint will be ws://localhost:3001/ws
+    });
+
+    // WebSocket connection handler
+    wss.on('connection', (ws, req) => {
+      console.log('🔗 New WebSocket connection established');
+      
+      let userId = null;
+      let userType = null;
+
+      // Handle WebSocket messages
+      ws.on('message', async (message) => {
+        try {
+          const data = JSON.parse(message);
+          console.log('📨 WebSocket message received:', data.type);
+
+          switch (data.type) {
+            case 'authenticate':
+              // Authenticate the WebSocket connection
+              const authData = authenticateWebSocket(data.token);
+              if (authData) {
+                userId = authData.userId;
+                userType = authData.userType;
+                websocketClients.set(userId, ws);
+                
+                ws.send(JSON.stringify({
+                  type: 'auth_success',
+                  message: 'WebSocket authenticated successfully',
+                  userId: userId,
+                  userType: userType
+                }));
+                
+                console.log(`✅ WebSocket authenticated: ${userType} ${userId}`);
+              } else {
+                ws.send(JSON.stringify({
+                  type: 'auth_error',
+                  message: 'Invalid token'
+                }));
+                console.log('❌ WebSocket authentication failed');
+              }
+              break;
+
+            case 'subscribe':
+              // Subscribe to load updates
+              if (!userId) {
+                ws.send(JSON.stringify({
+                  type: 'error',
+                  message: 'Must authenticate before subscribing'
+                }));
+                return;
+              }
+
+              const loadId = data.loadId;
+              if (!loadSubscriptions.has(loadId)) {
+                loadSubscriptions.set(loadId, new Set());
+              }
+              loadSubscriptions.get(loadId).add(userId);
+              
+              ws.send(JSON.stringify({
+                type: 'subscription_success',
+                loadId: loadId,
+                message: `Subscribed to load ${loadId} updates`
+              }));
+              
+              console.log(`📡 User ${userId} subscribed to load ${loadId}`);
+              break;
+
+            case 'unsubscribe':
+              // Unsubscribe from load updates
+              const unsubLoadId = data.loadId;
+              if (loadSubscriptions.has(unsubLoadId)) {
+                loadSubscriptions.get(unsubLoadId).delete(userId);
+                if (loadSubscriptions.get(unsubLoadId).size === 0) {
+                  loadSubscriptions.delete(unsubLoadId);
+                }
+              }
+              
+              ws.send(JSON.stringify({
+                type: 'unsubscription_success',
+                loadId: unsubLoadId,
+                message: `Unsubscribed from load ${unsubLoadId} updates`
+              }));
+              
+              console.log(`📡 User ${userId} unsubscribed from load ${unsubLoadId}`);
+              break;
+
+            case 'ping':
+              // Keep-alive ping
+              ws.send(JSON.stringify({
+                type: 'pong',
+                timestamp: new Date().toISOString()
+              }));
+              break;
+
+            default:
+              ws.send(JSON.stringify({
+                type: 'error',
+                message: 'Unknown message type'
+              }));
+          }
+        } catch (error) {
+          console.error('WebSocket message error:', error);
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Invalid message format'
+          }));
+        }
+      });
+
+      // Handle WebSocket close
+      ws.on('close', () => {
+        console.log('🔌 WebSocket connection closed');
+        if (userId) {
+          websocketClients.delete(userId);
+          
+          // Remove from all subscriptions
+          loadSubscriptions.forEach((subscribers, loadId) => {
+            subscribers.delete(userId);
+            if (subscribers.size === 0) {
+              loadSubscriptions.delete(loadId);
+            }
+          });
+        }
+      });
+
+      // Handle WebSocket error
+      ws.on('error', (error) => {
+        console.error('❌ WebSocket error:', error);
+      });
+
+      // Send welcome message
+      ws.send(JSON.stringify({
+        type: 'welcome',
+        message: 'WebSocket connection established. Please authenticate.',
+        timestamp: new Date().toISOString()
+      }));
+    });
+
+
+    // Start HTTP server with WebSocket support
+    server.listen(PORT, '0.0.0.0', () => {
+      // Dynamically detect local IP address
+      const os = require('os');
+      const networkInterfaces = os.networkInterfaces();
+      let localIP = 'localhost';
+      
+      // Try to find the main network interface IP
+      for (const interfaceName of Object.keys(networkInterfaces)) {
+        const interfaces = networkInterfaces[interfaceName];
+        for (const iface of interfaces) {
+          // Skip internal (loopback) and non-IPv4 addresses
+          if (iface.family === 'IPv4' && !iface.internal) {
+            localIP = iface.address;
+            break;
+          }
+        }
+        if (localIP !== 'localhost') break;
+      }
+      
+      console.log('\n' + '🎉'.repeat(80));
+      console.log(`🚀 POSTGRESQL + REDIS + WEBSOCKET SERVER RUNNING`);
+      console.log(`📍 Port: ${PORT}`);
+      console.log(`🌐 Local: http://localhost:${PORT}`);
+      console.log(`📱 Mobile: http://${localIP}:${PORT}`);
+      console.log(`🏥 Health: http://${localIP}:${PORT}/health`);
+      console.log(`🔗 WebSocket: ws://${localIP}:${PORT}/ws`);
+      console.log('\n📊 REAL DATABASE FEATURES:');
+      console.log('   ✅ PostgreSQL for persistent data');
+      console.log('   ✅ Redis for real-time features');  
+      console.log('   ✅ WebSocket for live updates');
+      console.log('   ✅ Full query logging enabled');
+      console.log('   ✅ User authentication & authorization');
+      console.log('   ✅ Load management system');
+      console.log('   ✅ Real-time location tracking');
+      console.log('\n🔐 API ENDPOINTS:');
+      console.log('   📱 /auth/* - Authentication');
+      console.log('   📦 /loads/* - Load management');
+      console.log('   📍 /location/* - Location services');
+      console.log('   🔗 /ws - WebSocket real-time updates');
+      console.log('🎉'.repeat(80) + '\n');
+    });
+
+  } catch (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  }
+}
+
+// Graceful shutdown
+process.on('SIGTERM', async () => {
+  console.log('SIGTERM received, shutting down gracefully');
+  await sequelize.close();
+  await redisClient.disconnect();
+  process.exit(0);
+});
+
+// ============================================================================
+// 🚀 ENHANCED LIVE TRACKING SYSTEM
+// ============================================================================
+
+// Real-time location streaming endpoint
+app.post('/loads/:loadId/stream-location', authenticateToken, async (req, res) => {
+  try {
+    const { loadId } = req.params;
+    const { lat, lng, heading, speed, accuracy, timestamp } = req.body;
+    const userId = req.user.userId;
+    const userType = req.userEntity.userType;
+
+    // Verify driver is assigned to this load
+    const load = await Load.findByPk(loadId);
+    if (!load) {
+      return res.status(404).json({
+        success: false,
+        message: 'Load not found'
+      });
+    }
+
+    if (userType !== UserType.DRIVER || load.driverId !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only assigned driver can stream location'
+      });
+    }
+
+    // Check if load is in a state where location can be streamed
+    const activeStatuses = [LoadStatus.ACCEPTED, LoadStatus.PICKED_UP, LoadStatus.IN_PROGRESS, LoadStatus.IN_TRANSIT];
+    if (!activeStatuses.includes(load.status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot stream location for ${load.status} load`,
+        currentStatus: load.status
+      });
+    }
+
+    const now = new Date();
+    
+    // Update database with latest location
+    await load.update({
+      driverCurrentLat: lat,
+      driverCurrentLng: lng,
+      lastLocationUpdate: now
+    });
+
+    // Create enhanced location data
+    const locationData = {
+      loadId,
+      driverId: userId,
+      lat,
+      lng,
+      heading: heading || 0,
+      speed: speed || 0,
+      accuracy: accuracy || 0,
+      timestamp: timestamp || now.toISOString(),
+      status: load.status
+    };
+
+    // Store in Redis for real-time access with 1-hour expiry
+    const cacheKey = `live_location:${loadId}`;
+    await redisClient.setEx(cacheKey, 3600, JSON.stringify(locationData));
+
+    // Store in location history (non-blocking)
+    storeLocationHistory(loadId, locationData).catch(err => 
+      console.error('Background history storage error:', err)
+    );
+
+    // Calculate ETA if load is in transit
+    let eta = null;
+    if (load.status === 'accepted' || load.status === 'in_transit') {
+      const destination = load.isPickedUp ? 
+        { lat: load.dropLat, lng: load.dropLng } : 
+        { lat: load.pickupLat, lng: load.pickupLng };
+      
+      eta = await calculateETA(lat, lng, destination.lat, destination.lng, speed);
+    }
+
+    // Check geofencing for pickup/drop zones
+    const geofenceAlerts = await checkGeofencing(load, lat, lng);
+
+    // Broadcast to vendor via Redis pub/sub
+    const trackingUpdate = {
+      loadId,
+      location: locationData,
+      eta,
+      geofenceAlerts,
+      lastUpdate: now.toISOString()
+    };
+
+    await redisClient.publish(`tracking:${load.vendorId}`, JSON.stringify(trackingUpdate));
+
+    res.json({
+      success: true,
+      message: 'Location updated successfully',
+      data: {
+        eta,
+        geofenceAlerts,
+        nextUpdateIn: 30 // seconds
+      }
+    });
+
+  } catch (error) {
+    console.error('Error streaming location:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to stream location'
+    });
+  }
+});
+
+// Live tracking dashboard for vendors
+app.get('/loads/:loadId/live-tracking', authenticateToken, async (req, res) => {
+  try {
+    const { loadId } = req.params;
+    const userId = req.user.userId;
+    const userType = req.userEntity.userType;
+
+    const load = await Load.findByPk(loadId, {
+      include: [
+        {
+          model: User,
+          as: 'driver',
+          attributes: ['id', 'name', 'phone'],
+          include: [{
+            model: Driver,
+            as: 'driverProfile',
+            attributes: ['vehicleType', 'vehicleNumber']
+          }]
+        }
+      ]
+    });
+
+    if (!load) {
+      return res.status(404).json({
+        success: false,
+        message: 'Load not found'
+      });
+    }
+
+    // Check access permissions
+    const hasAccess = (userType === UserType.VENDOR && load.vendorId === userId) ||
+                     (userType === UserType.DRIVER && load.driverId === userId);
+
+    if (!hasAccess) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied'
+      });
+    }
+
+    // Flatten driver data
+    const driverData = load.driver ? {
+      id: load.driver.id,
+      name: load.driver.name,
+      phone: load.driver.phone,
+      vehicleType: load.driver.driverProfile?.vehicleType,
+      vehicleNumber: load.driver.driverProfile?.vehicleNumber
+    } : null;
+
+    // Get live location data from Redis
+    const cacheKey = `live_location:${loadId}`;
+    const liveLocationData = await redisClient.get(cacheKey);
+    
+    let currentLocation = null;
+    let eta = null;
+    
+    if (liveLocationData) {
+      const locationData = JSON.parse(liveLocationData);
+      currentLocation = {
+        lat: locationData.lat,
+        lng: locationData.lng,
+        heading: locationData.heading,
+        speed: locationData.speed,
+        accuracy: locationData.accuracy,
+        lastUpdate: locationData.timestamp
+      };
+
+      // Recalculate ETA
+      if (load.status === 'accepted' || load.status === 'in_transit') {
+        const destination = load.isPickedUp ? 
+          { lat: load.dropLat, lng: load.dropLng } : 
+          { lat: load.pickupLat, lng: load.pickupLng };
+        
+        eta = await calculateETA(
+          locationData.lat, 
+          locationData.lng, 
+          destination.lat, 
+          destination.lng, 
+          locationData.speed
+        );
+      }
+    }
+
+    // Get route information
+    const routeInfo = await getOptimizedRoute(load, currentLocation);
+
+    // Get location history (last 50 points)
+    const locationHistory = await getLocationHistory(loadId);
+
+    res.json({
+      success: true,
+      data: {
+        load: {
+          id: load.id,
+          status: load.status,
+          isPickedUp: load.isPickedUp,
+          isDropped: load.isDropped,
+          pickup: {
+            address: load.pickupAddress,
+            lat: load.pickupLat,
+            lng: load.pickupLng,
+            contactName: load.pickupContactName,
+            contactPhone: load.pickupContactPhone
+          },
+          drop: {
+            address: load.dropAddress,
+            lat: load.dropLat,
+            lng: load.dropLng,
+            contactName: load.dropContactName,
+            contactPhone: load.dropContactPhone
+          }
+        },
+        driver: driverData,
+        tracking: {
+          isLive: !!currentLocation,
+          currentLocation,
+          eta,
+          routeInfo,
+          locationHistory: locationHistory.slice(-50), // Last 50 points
+          lastUpdate: currentLocation?.lastUpdate || load.lastLocationUpdate
+        },
+        geofences: {
+          pickup: {
+            center: { lat: load.pickupLat, lng: load.pickupLng },
+            radius: 500 // meters
+          },
+          drop: {
+            center: { lat: load.dropLat, lng: load.dropLng },
+            radius: 500 // meters
+          }
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Error getting live tracking data:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get tracking data'
+    });
+  }
+});
+
+// Location history endpoint
+app.get('/loads/:loadId/location-history', authenticateToken, async (req, res) => {
+  try {
+    const { loadId } = req.params;
+    const { limit = 100, from, to } = req.query;
+    
+    const history = await getLocationHistory(loadId, {
+      limit: parseInt(limit),
+      from: from ? new Date(from) : null,
+      to: to ? new Date(to) : null
+    });
+
+    res.json({
+      success: true,
+      data: history
+    });
+
+  } catch (error) {
+    console.error('Error getting location history:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get location history'
+    });
+  }
+});
+
+// Helper Functions for Live Tracking
+async function calculateETA(fromLat, fromLng, toLat, toLng, currentSpeed = 0) {
+  try {
+    // Calculate distance using Haversine formula
+    const distance = getDistanceBetweenPoints(fromLat, fromLng, toLat, toLng);
+    
+    // Estimate speed (if no current speed, use average city speed)
+    const estimatedSpeed = currentSpeed > 5 ? currentSpeed : 40; // km/h
+    
+    // Calculate ETA in minutes
+    const etaMinutes = Math.round((distance / estimatedSpeed) * 60);
+    
+    return {
+      distance: Math.round(distance * 10) / 10, // Round to 1 decimal
+      estimatedSpeed,
+      etaMinutes,
+      etaText: formatETA(etaMinutes)
+    };
+  } catch (error) {
+    console.error('Error calculating ETA:', error);
+    return null;
+  }
+}
+
+function formatETA(minutes) {
+  if (minutes < 60) {
+    return `${minutes} min`;
+  } else {
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = minutes % 60;
+    return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+  }
+}
+
+async function checkGeofencing(load, currentLat, currentLng) {
+  const alerts = [];
+  const geofenceRadius = 0.5; // 500 meters in km
+
+  try {
+    // Check pickup geofence
+    if (!load.isPickedUp) {
+      const distanceToPickup = getDistanceBetweenPoints(
+        currentLat, currentLng, 
+        load.pickupLat, load.pickupLng
+      );
+
+      if (distanceToPickup <= geofenceRadius) {
+        alerts.push({
+          type: 'pickup_zone_entered',
+          message: 'Driver has entered pickup zone',
+          location: 'pickup',
+          distance: Math.round(distanceToPickup * 1000) // meters
+        });
+      }
+    }
+
+    // Check drop geofence
+    if (load.isPickedUp && !load.isDropped) {
+      const distanceToDrop = getDistanceBetweenPoints(
+        currentLat, currentLng, 
+        load.dropLat, load.dropLng
+      );
+
+      if (distanceToDrop <= geofenceRadius) {
+        alerts.push({
+          type: 'drop_zone_entered',
+          message: 'Driver has entered delivery zone',
+          location: 'drop',
+          distance: Math.round(distanceToDrop * 1000) // meters
+        });
+      }
+    }
+
+    return alerts;
+  } catch (error) {
+    console.error('Error checking geofencing:', error);
+    return [];
+  }
+}
+
+async function getOptimizedRoute(load, currentLocation) {
+  try {
+    if (!currentLocation) return null;
+
+    const waypoints = [];
+    
+    // Add pickup if not picked up
+    if (!load.isPickedUp) {
+      waypoints.push({
+        lat: load.pickupLat,
+        lng: load.pickupLng,
+        type: 'pickup',
+        address: load.pickupAddress
+      });
+    }
+    
+    // Add drop location
+    waypoints.push({
+      lat: load.dropLat,
+      lng: load.dropLng,
+      type: 'drop',
+      address: load.dropAddress
+    });
+
+    // Calculate total distance and estimated time
+    let totalDistance = 0;
+    let estimatedTime = 0;
+
+    for (let i = 0; i < waypoints.length; i++) {
+      const fromLat = i === 0 ? currentLocation.lat : waypoints[i-1].lat;
+      const fromLng = i === 0 ? currentLocation.lng : waypoints[i-1].lng;
+      
+      const distance = getDistanceBetweenPoints(
+        fromLat, fromLng, 
+        waypoints[i].lat, waypoints[i].lng
+      );
+      
+      totalDistance += distance;
+      estimatedTime += (distance / 40) * 60; // 40 km/h average speed
+    }
+
+    return {
+      waypoints,
+      totalDistance: Math.round(totalDistance * 10) / 10,
+      estimatedTime: Math.round(estimatedTime),
+      optimized: true
+    };
+
+  } catch (error) {
+    console.error('Error getting optimized route:', error);
+    return null;
+  }
+}
+
+async function getLocationHistory(loadId, options = {}) {
+  try {
+    // For now, we'll use a simple Redis-based history
+    // In production, you might want to use a proper time-series database
+    const historyKey = `location_history:${loadId}`;
+    const history = await redisClient.lRange(historyKey, 0, options.limit || 100);
+    
+    return history.map(item => JSON.parse(item)).reverse();
+  } catch (error) {
+    console.error('Error getting location history:', error);
+    return [];
+  }
+}
+
+// ===================== ENHANCED NORMALIZED ENDPOINTS =====================
+
+// Get driver current location (for map display)
+app.get('/drivers/:driverId/current-location', authenticateToken, async (req, res) => {
+  try {
+    const { driverId } = req.params;
+
+    // First try Redis (faster)
+    const cachedLocation = await RedisLogger.get(`driver_location:${driverId}`);
+    if (cachedLocation) {
+      const locationData = JSON.parse(cachedLocation);
+      return res.json({
+        success: true,
+        data: {
+          ...locationData,
+          source: 'cache'
+        }
+      });
+    }
+
+    // Fallback to database
+    const currentLocation = await DriverLocation.findOne({
+      where: { driverId },
+      order: [['lastUpdated', 'DESC']]
+    });
+
+    if (!currentLocation) {
+      return res.json({
+        success: true,
+        data: null,
+        message: 'No current location available'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        latitude: parseFloat(currentLocation.latitude),
+        longitude: parseFloat(currentLocation.longitude),
+        accuracy: currentLocation.accuracy ? parseFloat(currentLocation.accuracy) : null,
+        speed: currentLocation.speed ? parseFloat(currentLocation.speed) : null,
+        heading: currentLocation.heading ? parseFloat(currentLocation.heading) : null,
+        address: currentLocation.address,
+        updatedAt: currentLocation.lastUpdated,
+        source: 'database'
+      }
+    });
+
+  } catch (error) {
+    console.error('Error getting driver location:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get driver location'
+    });
+  }
+});
+
+// Utility function for distance calculation
+function getDistanceBetweenPoints(lat1, lon1, lat2, lon2) {
+  const R = 6371; // Earth's radius in km
+  const dLat = toRadians(lat2 - lat1);
+  const dLon = toRadians(lon2 - lon1);
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+function toRadians(degrees) {
+  return degrees * (Math.PI / 180);
+}
+
+// Store location in history (call this from stream-location endpoint)
+async function storeLocationHistory(loadId, locationData) {
+  try {
+    const historyKey = `location_history:${loadId}`;
+    await redisClient.lPush(historyKey, JSON.stringify(locationData));
+    await redisClient.lTrim(historyKey, 0, 1000); // Keep last 1000 points
+    await redisClient.expire(historyKey, 86400); // 24 hours
+  } catch (error) {
+    console.error('Error storing location history:', error);
+  }
+}
+
+// Error handling middleware (registered at end so it doesn't intercept later routes)
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err);
+  res.status(500).json({
+    success: false,
+    message: 'Internal server error'
+  });
+});
+
+// 404 handler (registered at end so all routes are available first)
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    message: `Route ${req.originalUrl} not found`
+  });
+});
+
+process.on('SIGINT', async () => {
+  console.log('SIGINT received, shutting down gracefully');
+  await sequelize.close();
+  await redisClient.disconnect();
+  process.exit(0);
+});
+
+// Start the server
+startServer();
