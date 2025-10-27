@@ -5,7 +5,6 @@ import { Load } from '@/types/user';
 import { router } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import LiveTrackingService from '@/services/liveTracking';
-import StatusNotificationBanner from '@/components/LiveTracking/StatusNotificationBanner';
 import {
     Alert,
     FlatList,
@@ -129,12 +128,15 @@ export default function MyLoadsScreen() {
     if (currentLoadId && trackingService.isActivelyTracking) {
       setTrackingLoadId(currentLoadId);
     }
+  }, [loadMyLoads]);
 
+  // Separate effect for WebSocket connection
+  useEffect(() => {
     // Phase 3: WebSocket listener for real-time driver availability updates
     let ws: WebSocket | null = null;
     
     if (currentUser?.type === 'vendor' && loads.some(load => load.status === 'posted')) {
-      const wsUrl = 'ws://192.168.1.14:3001/ws'; // Use same IP as API
+      const wsUrl = 'ws://192.168.137.4:3001/ws'; // Use same IP as API
       
       try {
         ws = new WebSocket(wsUrl);
@@ -179,7 +181,7 @@ export default function MyLoadsScreen() {
         ws.close();
       }
     };
-  }, [loadMyLoads, currentUser, loads]);
+  }, [currentUser?.type, loads.length]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -387,18 +389,6 @@ export default function MyLoadsScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Status Notification Banner for Vendors */}
-      {currentUser?.type === 'vendor' && (
-        <StatusNotificationBanner
-          vendorId={currentUser.id}
-          onNotificationPress={(notification) => {
-            if (notification.loadId) {
-              router.push(`/(tabs)/load-details?id=${notification.loadId}`);
-            }
-          }}
-        />
-      )}
-      
       <View style={styles.header}>
         <Text style={styles.headerTitle}>My Loads</Text>
         <Text style={styles.headerSubtitle}>{loads.length} total loads</Text>

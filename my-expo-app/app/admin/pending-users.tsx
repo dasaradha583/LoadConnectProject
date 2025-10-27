@@ -54,8 +54,13 @@ export default function PendingUsers() {
       });
 
       if (response.ok) {
-        const data = await response.json();
-        setUsers(data.users || []);
+        const result = await response.json();
+        console.log('Fetched pending users:', result);
+        if (result.success && result.data && result.data.users) {
+          setUsers(result.data.users);
+        } else {
+          setUsers([]);
+        }
       }
     } catch (error) {
       console.error('Error fetching users:', error);

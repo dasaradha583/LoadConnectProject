@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 
 export default function HomeScreen() {
-  const [user, setUser] = useState<Driver | Vendor | null>(null);
+  const [user, setUser] = useState<Driver | Vendor | any>(null);
   const [nearbyLoads, setNearbyLoads] = useState<Load[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -26,6 +26,13 @@ export default function HomeScreen() {
       // Get current user first (this should be fast from local storage)
       const authService = AuthService.getInstance();
       const currentUser = await authService.getCurrentUser();
+      
+      // Redirect admin users to admin dashboard
+      if (currentUser && 'type' in currentUser && currentUser.type === 'admin') {
+        router.replace('/admin/dashboard');
+        return;
+      }
+      
       setUser(currentUser as Driver | Vendor);
       
       // Stop loading immediately after getting user - don't wait for loads
@@ -64,8 +71,13 @@ export default function HomeScreen() {
       
       if (location && location.latitude && location.longitude) {
         const loadService = LoadService.getInstance();
-        const loads = await loadService.getNearbyLoads(location, undefined, 50); // 50km radius
-        setNearbyLoads(loads);
+        const result = await loadService.getNearbyLoads(location, undefined, 50); // 50km radius
+        // Handle both array and object response formats
+        if (Array.isArray(result)) {
+          setNearbyLoads(result);
+        } else if (result && 'loads' in result) {
+          setNearbyLoads(result.loads);
+        }
       }
     } catch (error) {
       console.log('Error loading nearby loads:', error);

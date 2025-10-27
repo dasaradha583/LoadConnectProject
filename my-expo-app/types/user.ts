@@ -1,4 +1,4 @@
-export type UserType = 'driver' | 'vendor';
+export type UserType = 'driver' | 'vendor' | 'admin';
 
 export interface User {
   id: string;
@@ -35,6 +35,17 @@ export interface Vendor extends User {
   gstNumber: string;
   rating: number;
   totalOrders: number;
+}
+
+export interface Admin extends User {
+  type: 'admin';
+  adminLevel?: string;
+  department?: string;
+  canApproveVendors?: boolean;
+  canApproveDrivers?: boolean;
+  canSuspendUsers?: boolean;
+  canViewFinancials?: boolean;
+  canManageAdmins?: boolean;
 }
 
 export interface Load {

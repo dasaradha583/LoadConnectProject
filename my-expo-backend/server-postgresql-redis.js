@@ -895,86 +895,6 @@ app.use('/api', createRegistrationRoutes(normalizedModels));
 
 console.log('✅ Admin system integrated successfully');
 
-// ===================== PUSH NOTIFICATION SERVICE =====================
-const PushNotificationService = require('./push-notification-service');
-const pushNotificationService = new PushNotificationService(normalizedModels);
-
-// Save push token endpoint
-app.post('/users/push-token', authenticateToken, async (req, res) => {
-  try {
-    const { expoPushToken, deviceType, deviceModel } = req.body;
-
-    if (!expoPushToken) {
-      return res.status(400).json({
-        success: false,
-        message: 'Push token is required'
-      });
-    }
-
-    // Update user with push token
-    await User.update(
-      {
-        expoPushToken,
-        deviceType,
-        deviceModel,
-        pushTokenUpdatedAt: new Date()
-      },
-      {
-        where: { id: req.user.userId }
-      }
-    );
-
-    console.log(`✅ Push token saved for user ${req.user.userId}: ${expoPushToken.substring(0, 20)}...`);
-
-    res.json({
-      success: true,
-      message: 'Push token registered successfully'
-    });
-
-  } catch (error) {
-    console.error('Error saving push token:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to save push token'
-    });
-  }
-});
-
-// Test push notification endpoint (for testing purposes)
-app.post('/users/test-notification', authenticateToken, async (req, res) => {
-  try {
-    const { title, body } = req.body;
-
-    const result = await pushNotificationService.sendToUser(req.user.userId, {
-      type: 'test',
-      title: title || 'Test Notification',
-      body: body || 'This is a test notification from LoadConnect!',
-      data: { test: true }
-    });
-
-    if (result.success) {
-      res.json({
-        success: true,
-        message: 'Test notification sent successfully'
-      });
-    } else {
-      res.status(400).json({
-        success: false,
-        message: result.error || 'Failed to send notification'
-      });
-    }
-
-  } catch (error) {
-    console.error('Error sending test notification:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to send test notification'
-    });
-  }
-});
-
-console.log('✅ Push notification service initialized');
-
 // ===================== HEALTH & DIAGNOSTICS =====================
 
 app.get('/health', async (req, res) => {
@@ -1841,28 +1761,6 @@ app.post('/loads', authenticateToken, async (req, res) => {
     console.log(`📦 Load created with map-selected locations: ${load.id}`);
     console.log(`   Pickup: ${finalPickupAddress}`);
     console.log(`   Drop: ${finalDropAddress}`);
-
-    // 🔔 Send push notifications to nearby drivers
-    try {
-      const notification = pushNotificationService.templates.newLoadPosted({
-        id: load.id,
-        weight: load.weight,
-        pickupAddress: finalPickupAddress,
-        dropAddress: finalDropAddress
-      });
-      
-      // Send to drivers within 150km radius
-      const result = await pushNotificationService.sendToNearbyDrivers(
-        { lat: finalPickupLat, lng: finalPickupLng },
-        150, // 150km radius
-        notification
-      );
-      
-      console.log(`📬 Notified ${result.successful} nearby drivers about new load`);
-    } catch (notifError) {
-      console.error('⚠️ Error sending load notifications:', notifError);
-      // Don't fail the request if notifications fail
-    }
 
     res.status(201).json({
       success: true,
@@ -3218,27 +3116,31 @@ app.get('/location/drivers/count', authenticateToken, async (req, res) => {
     const availableDrivers = await User.findAll({
       where: {
         userType: UserType.DRIVER,
-        isAvailable: true,
-        isApproved: true
+        approvalStatus: 'approved'
       },
       include: [{
         model: Driver,
         as: 'driverProfile',
-        attributes: ['vehicleType', 'rating']
+        where: {
+          isAvailable: true
+        },
+        attributes: ['vehicleType', 'rating', 'currentLocationLat', 'currentLocationLng'],
+        required: true
       }]
     });
 
     // Calculate distances and count drivers within different radii
     const driversWithDistance = availableDrivers.map(driver => {
-      if (!driver.latitude || !driver.longitude) {
+      const driverProfile = driver.driverProfile;
+      if (!driverProfile || !driverProfile.currentLocationLat || !driverProfile.currentLocationLng) {
         return null;
       }
 
       const distance = calculateDistance(
         latitude,
         longitude,
-        driver.latitude,
-        driver.longitude
+        driverProfile.currentLocationLat,
+        driverProfile.currentLocationLng
       );
 
       return {
@@ -3484,271 +3386,6 @@ app.get('/loads/:loadId/details', authenticateToken, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to get load details'
-    });
-  }
-});
-
-// Get acceptance notifications for vendor
-app.get('/loads/:loadId/acceptance-notification', authenticateToken, async (req, res) => {
-  try {
-    const { loadId } = req.params;
-    
-    if (req.userEntity.userType !== UserType.VENDOR) {
-      return res.status(403).json({
-        success: false,
-        message: 'Only vendors can access acceptance notifications'
-      });
-    }
-
-    // Check if load belongs to vendor
-    const load = await Load.findOne({
-      where: { id: loadId, vendorId: req.user.userId }
-    });
-
-    if (!load) {
-      return res.status(404).json({
-        success: false,
-        message: 'Load not found or not accessible'
-      });
-    }
-
-    // Get acceptance notification from Redis
-    const acceptanceData = await redisClient.get(`load_acceptance:${loadId}`);
-    
-    if (acceptanceData) {
-      const acceptance = JSON.parse(acceptanceData);
-      res.json({
-        success: true,
-        data: acceptance,
-        message: 'Acceptance notification found'
-      });
-    } else {
-      res.json({
-        success: true,
-        data: null,
-        message: 'No recent acceptance notification'
-      });
-    }
-
-  } catch (error) {
-    console.error('Get acceptance notification error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to get acceptance notification'
-    });
-  }
-});
-
-// ===================== NOTIFICATION ENDPOINTS =====================
-
-// Get latest notifications for vendor
-app.get('/notifications/vendor/:vendorId/latest', authenticateToken, async (req, res) => {
-  try {
-    const { vendorId } = req.params;
-    
-    // Verify vendor is requesting their own notifications
-    if (req.userEntity.userType !== UserType.VENDOR || req.user.userId !== vendorId) {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied. Can only access your own notifications.'
-      });
-    }
-
-    // Get all loads for this vendor that were recently accepted
-    const recentLoads = await Load.findAll({
-      where: {
-        vendorId: vendorId,
-        status: {
-          [Sequelize.Op.in]: [LoadStatus.ACCEPTED, LoadStatus.IN_PROGRESS, LoadStatus.DELIVERED]
-        },
-        acceptedAt: {
-          [Sequelize.Op.gte]: new Date(Date.now() - 24 * 60 * 60 * 1000) // Last 24 hours
-        }
-      },
-      include: [{
-        model: User,
-        as: 'driver',
-        attributes: ['id', 'name', 'phone'],
-        include: [{
-          model: Driver,
-          as: 'driverProfile',
-          attributes: ['vehicleType', 'vehicleNumber', 'rating']
-        }]
-      }],
-      order: [['acceptedAt', 'DESC']],
-      limit: 10
-    });
-
-    // Format notifications
-    const notifications = recentLoads.map(load => {
-      const driverData = load.driver ? {
-        id: load.driver.id,
-        name: load.driver.name,
-        phone: load.driver.phone,
-        vehicleType: load.driver.driverProfile?.vehicleType,
-        vehicleNumber: load.driver.driverProfile?.vehicleNumber,
-        rating: load.driver.driverProfile?.rating
-      } : null;
-      
-      return {
-        id: `notif_${load.id}`,
-        type: 'load_accepted',
-        loadId: load.id,
-        title: '🚛 Load Accepted',
-        message: `${driverData?.name || 'A driver'} has accepted your load`,
-        timestamp: load.acceptedAt,
-        data: {
-          load: {
-            id: load.id,
-            status: load.status,
-            pickupAddress: load.pickupAddress,
-            dropAddress: load.dropAddress,
-            weight: load.weight,
-            budget: load.budget
-          },
-          driver: driverData ? {
-            id: driverData.id,
-            name: driverData.name,
-            phone: driverData.phone,
-            vehicleInfo: `${driverData.vehicleType || 'Unknown'} - ${driverData.vehicleNumber || 'Unknown'}`,
-            rating: driverData.rating
-          } : null
-        },
-        read: false
-      };
-    });
-
-    // Also check Redis for real-time acceptance notifications
-    const redisNotifications = [];
-    for (const load of recentLoads) {
-      const acceptanceData = await redisClient.get(`load_acceptance:${load.id}`);
-      if (acceptanceData) {
-        try {
-          const acceptance = JSON.parse(acceptanceData);
-          redisNotifications.push({
-            id: `realtime_${load.id}`,
-            type: 'load_acceptance_realtime',
-            loadId: load.id,
-            title: '📱 Real-time Update',
-            message: `${acceptance.driverName} is preparing for pickup`,
-            timestamp: acceptance.acceptedAt,
-            data: acceptance,
-            read: false
-          });
-        } catch (e) {
-          console.error('Error parsing Redis notification:', e);
-        }
-      }
-    }
-
-    // Combine and sort all notifications
-    const allNotifications = [...notifications, ...redisNotifications]
-      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-
-    console.log(`📬 Retrieved ${allNotifications.length} notifications for vendor ${vendorId}`);
-
-    res.json({
-      success: true,
-      data: allNotifications,
-      count: allNotifications.length,
-      message: allNotifications.length > 0 
-        ? `Found ${allNotifications.length} notifications` 
-        : 'No new notifications'
-    });
-
-  } catch (error) {
-    console.error('Get vendor notifications error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to get notifications'
-    });
-  }
-});
-
-// Get latest notifications for driver
-app.get('/notifications/driver/:driverId/latest', authenticateToken, async (req, res) => {
-  try {
-    const { driverId } = req.params;
-    
-    // Verify driver is requesting their own notifications
-    if (req.userEntity.userType !== UserType.DRIVER || req.user.userId !== driverId) {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied. Can only access your own notifications.'
-      });
-    }
-
-    // Get driver's active loads
-    const activeLoads = await Load.findAll({
-      where: {
-        driverId: driverId,
-        status: {
-          [Sequelize.Op.in]: [LoadStatus.ACCEPTED, LoadStatus.IN_PROGRESS]
-        }
-      },
-      include: [{
-        model: User,
-        as: 'vendor',
-        attributes: ['id', 'name', 'phone'],
-        include: [{
-          model: Vendor,
-          as: 'vendorProfile',
-          attributes: ['businessName']
-        }]
-      }],
-      order: [['acceptedAt', 'DESC']],
-      limit: 10
-    });
-
-    // Format notifications
-    const notifications = activeLoads.map(load => {
-      const vendorData = load.vendor ? {
-        id: load.vendor.id,
-        name: load.vendor.name,
-        phone: load.vendor.phone,
-        businessName: load.vendor.vendorProfile?.businessName
-      } : null;
-      
-      return {
-        id: `notif_${load.id}`,
-        type: 'active_load',
-        loadId: load.id,
-        title: load.isPickedUp ? '🚛 In Transit' : '📦 Ready for Pickup',
-        message: load.isPickedUp 
-          ? `En route to ${load.dropAddress}`
-          : `Pickup from ${load.pickupAddress}`,
-        timestamp: load.acceptedAt,
-        data: {
-          load: {
-            id: load.id,
-            status: load.status,
-            isPickedUp: load.isPickedUp,
-            isDropped: load.isDropped,
-            pickupAddress: load.pickupAddress,
-            dropAddress: load.dropAddress
-          },
-          vendor: vendorData
-        },
-        read: false
-      };
-    });
-
-    console.log(`📬 Retrieved ${notifications.length} notifications for driver ${driverId}`);
-
-    res.json({
-      success: true,
-      data: notifications,
-      count: notifications.length,
-      message: notifications.length > 0 
-        ? `Found ${notifications.length} active loads` 
-        : 'No active loads'
-    });
-
-  } catch (error) {
-    console.error('Get driver notifications error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to get notifications'
     });
   }
 });

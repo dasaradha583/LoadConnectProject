@@ -23,8 +23,7 @@ const getAPIBaseURLs = () => {
     
     // Fallback IPs - try current network first
     developmentURLs.push(
-      'http://192.168.1.14:3001',  // Current actual IP
-      'http://10.10.60.209:3001',  // Previous IP (fallback)
+      'http://192.168.137.4:3001',  // Current actual IP
       'http://localhost:3001',     // Local fallback
     );
     
@@ -480,11 +479,6 @@ class ApiService {
       method: 'POST',
       body: JSON.stringify({ status, location }),
     });
-  }
-
-  // Acceptance notification for vendor
-  async getAcceptanceNotification(loadId: string): Promise<ApiResponse> {
-    return this.makeRequest(`/loads/${loadId}/acceptance-notification`);
   }
 
   // Geocoding debug endpoint

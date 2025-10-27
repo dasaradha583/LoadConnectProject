@@ -166,6 +166,7 @@ class AuthService {
 
   async registerWithOTP(phone: string, otp: string, userType: UserType, additionalData: any): Promise<User> {
     try {
+      console.log('📝 Registration: Starting registration for', phone, 'as', userType);
       const userData = {
         phone,
         otp,
@@ -175,48 +176,62 @@ class AuthService {
       };
 
       const response = await this.apiService.register(userData);
+      console.log('📝 Registration: Backend response received');
+      
       if (response.success) {
         const { user, tokens } = response.data!;
+        console.log('📝 Registration: User registered successfully:', user);
         
-        // Backend returns flat user object with vendor/driver fields merged
-        // Convert to local User type with all fields
-        const localUser: User = {
-          id: user.id,
-          type: user.type,
-          phone: user.phone,
-          username: user.username,
-          name: user.name,
-          verified: user.phoneVerified || user.verified || false,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          // Include vendor/driver specific fields from response
-          ...(userType === 'vendor' ? {
-            businessName: user.businessName || additionalData.businessName,
-            gstNumber: user.gstNumber || additionalData.gstNumber,
-            rating: user.rating || 5.0,
-            totalOrders: user.totalOrders || 0
-          } : {}),
-          ...(userType === 'driver' ? {
-            licenseNumber: user.licenseNumber || additionalData.licenseNumber,
-            vehicleType: user.vehicleType || additionalData.vehicleType,
-            vehicleCapacity: user.vehicleCapacity || additionalData.vehicleCapacity,
-            vehicleNumber: user.vehicleNumber || additionalData.vehicleNumber,
-            isAvailable: user.isAvailable || false,
-            rating: user.rating || 5.0,
-            totalTrips: user.totalTrips || 0,
-            completedTrips: user.completedTrips || 0,
-            totalEarnings: user.totalEarnings || 0
-          } : {})
-        };
-
-        await this.setCurrentUser(localUser as Driver | Vendor);
+        // Store tokens first
         await this.setTokens(tokens.accessToken, tokens.refreshToken);
+        console.log('📝 Registration: Tokens stored');
         
-        return localUser;
+        // Load full profile to get complete vendor/driver data from backend
+        console.log('📝 Registration: Loading full profile...');
+        const fullProfile = await this.loadFullProfile();
+        console.log('📝 Registration: Full profile loaded:', fullProfile);
+        
+        if (!fullProfile) {
+          console.error('📝 Registration: Failed to load full profile, creating local user');
+          // Fallback: Create local user object if profile loading fails
+          const localUser: User = {
+            id: user.id,
+            type: user.type,
+            phone: user.phone,
+            username: user.username,
+            name: user.name,
+            verified: user.phoneVerified || user.verified || false,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            // Include vendor/driver specific fields from response
+            ...(userType === 'vendor' ? {
+              businessName: user.businessName || additionalData.businessName,
+              gstNumber: user.gstNumber || additionalData.gstNumber,
+              rating: user.rating || 5.0,
+              totalOrders: user.totalOrders || 0
+            } : {}),
+            ...(userType === 'driver' ? {
+              licenseNumber: user.licenseNumber || additionalData.licenseNumber,
+              vehicleType: user.vehicleType || additionalData.vehicleType,
+              vehicleCapacity: user.vehicleCapacity || additionalData.vehicleCapacity,
+              vehicleNumber: user.vehicleNumber || additionalData.vehicleNumber,
+              isAvailable: user.isAvailable || false,
+              rating: user.rating || 5.0,
+              totalTrips: user.totalTrips || 0,
+              completedTrips: user.completedTrips || 0,
+              totalEarnings: user.totalEarnings || 0
+            } : {})
+          };
+          
+          await this.setCurrentUser(localUser as Driver | Vendor);
+          return localUser;
+        }
+        
+        return fullProfile;
       }
       throw new Error(response.message);
     } catch (error) {
-      console.error('Registration error:', error);
+      console.error('📝 Registration error:', error);
       throw error;
     }
   }
@@ -272,10 +287,10 @@ class AuthService {
       const response = await apiService.getFullProfile();
       
       if (response.success && response.data) {
-        const { user, driver, vendor } = response.data;
+        const { user, driver, vendor, admin } = response.data;
         
-        // Merge user with driver or vendor data
-        let mergedUser: Driver | Vendor;
+        // Merge user with driver, vendor, or admin data
+        let mergedUser: Driver | Vendor | any;
         
         if (user.type === 'driver' && driver) {
           mergedUser = {
@@ -295,6 +310,16 @@ class AuthService {
             createdAt: new Date(user.createdAt),
             updatedAt: new Date(user.updatedAt)
           } as Vendor;
+        } else if (user.type === 'admin') {
+          // Admin user - just use the user data with admin info
+          mergedUser = {
+            ...user,
+            ...(admin || {}),
+            type: 'admin',
+            verified: user.phoneVerified || false,
+            createdAt: new Date(user.createdAt),
+            updatedAt: new Date(user.updatedAt)
+          };
         } else {
           return null;
         }

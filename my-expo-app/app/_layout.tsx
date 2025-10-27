@@ -4,7 +4,6 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { NotificationService } from '@/services/notification';
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -12,22 +11,6 @@ export const unstable_settings = {
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
-
-  useEffect(() => {
-    // Initialize push notifications when app starts
-    const initNotifications = async () => {
-      const notificationService = NotificationService.getInstance();
-      await notificationService.initialize();
-    };
-
-    initNotifications();
-
-    // Cleanup on unmount
-    return () => {
-      const notificationService = NotificationService.getInstance();
-      notificationService.cleanup();
-    };
-  }, []);
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>

@@ -2,7 +2,6 @@ import AuthService from '@/services/auth';
 import CameraService from '@/services/camera';
 import LoadService from '@/services/load';
 import LocationService from '@/services/location';
-import NotificationService from '@/services/notification';
 import { Driver, Load } from '@/types/user';
 import React, { useEffect, useState } from 'react';
 import {
@@ -74,7 +73,6 @@ export default function TripTrackingScreen() {
   const startLocationTracking = async () => {
     try {
       const locationService = LocationService.getInstance();
-      const notificationService = NotificationService.getInstance();
       
       const success = await locationService.startLocationTracking((location) => {
         console.log('Location updated:', location);
@@ -85,10 +83,7 @@ export default function TripTrackingScreen() {
         setLocationTracking(true);
         locationService.startRouteTracking();
         
-        await notificationService.sendImmediateNotification({
-          title: '📍 GPS Tracking Started',
-          body: 'Your location is now being tracked for delivery updates',
-        });
+        Alert.alert('GPS Tracking Started', 'Your location is now being tracked for delivery updates');
       } else {
         Alert.alert('Error', 'Could not start location tracking. Please check your permissions.');
       }
@@ -101,7 +96,6 @@ export default function TripTrackingScreen() {
   const stopLocationTracking = async () => {
     try {
       const locationService = LocationService.getInstance();
-      const notificationService = NotificationService.getInstance();
       
       locationService.stopLocationTracking();
       const routePoints = locationService.stopRouteTracking();
@@ -110,10 +104,7 @@ export default function TripTrackingScreen() {
       
       console.log(`Route completed with ${routePoints.length} points`);
       
-      await notificationService.sendImmediateNotification({
-        title: '🛑 GPS Tracking Stopped',
-        body: 'Location tracking has been stopped',
-      });
+      Alert.alert('GPS Tracking Stopped', 'Location tracking has been stopped');
     } catch (error) {
       console.error('Error stopping location tracking:', error);
     }
@@ -122,7 +113,6 @@ export default function TripTrackingScreen() {
   const updateLoadStatus = async (loadId: string, newStatus: Load['status']) => {
     try {
       const loadService = LoadService.getInstance();
-      const notificationService = NotificationService.getInstance();
       
       const success = await loadService.updateLoadStatus(loadId, newStatus, currentDriver?.id || '');
       
@@ -131,9 +121,6 @@ export default function TripTrackingScreen() {
         if (currentDriver) {
           await loadActiveTrips(currentDriver.id);
         }
-        
-        // Send notification based on status (requires loadId and status)
-        await notificationService.notifyDeliveryUpdate(loadId, newStatus);
         
         // Show success message
         const statusMessages = {
@@ -197,10 +184,6 @@ export default function TripTrackingScreen() {
       );
       
       if (isNear) {
-        const notificationService = NotificationService.getInstance();
-        // notifyLocationReached only needs 1 argument (locationType)
-        await notificationService.notifyLocationReached(locationType);
-        
         const actionText = locationType === 'pickup' ? 'Mark as Picked Up' : 'Take Proof & Deliver';
         const nextStatus = locationType === 'pickup' ? 'picked_up' : 'delivered';
         

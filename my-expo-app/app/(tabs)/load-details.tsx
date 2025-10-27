@@ -870,22 +870,6 @@ export default function LoadDetailsScreen() {
         />
       )}
 
-      {/* Test Map Button (for development) - Vendors can test the map */}
-      {user?.type === 'vendor' && __DEV__ && (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>🧪 Test Live Location Map</Text>
-          <TouchableOpacity
-            style={styles.viewMapButton}
-            onPress={() => setShowDriverLocationMap(true)}
-          >
-            <Text style={styles.viewMapButtonText}>🗺️ Test Driver Location Map</Text>
-          </TouchableOpacity>
-          <Text style={styles.instructionsText}>
-            This shows a test location in Bangalore. The real driver location will be integrated later.
-          </Text>
-        </View>
-      )}
-
       {/* Driver Action Buttons */}
       {user?.type === 'driver' && (
         <View style={styles.card}>
