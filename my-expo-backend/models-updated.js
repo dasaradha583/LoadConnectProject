@@ -58,11 +58,6 @@ function defineModels(sequelize) {
       type: DataTypes.STRING(100),
       allowNull: false
     },
-    email: {
-      type: DataTypes.STRING(255),
-      unique: true,
-      allowNull: true
-    },
     passwordHash: {
       type: DataTypes.STRING(255),
       field: 'password_hash',
@@ -82,11 +77,6 @@ function defineModels(sequelize) {
       type: DataTypes.BOOLEAN,
       defaultValue: false,
       field: 'is_verified'
-    },
-    emailVerified: {
-      type: DataTypes.BOOLEAN,
-      defaultValue: false,
-      field: 'email_verified'
     },
     phoneVerified: {
       type: DataTypes.BOOLEAN,

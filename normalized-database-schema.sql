@@ -1,12 +1,4 @@
--- ===================================================================
--- NORMALIZED DATABASE SCHEMA FOR LOADCONNECT
--- Following 3NF (Third Normal Form) Principles
--- Date: October 23, 2025
--- ===================================================================
 
--- ===================== CORE ENTITIES =====================
-
--- Base Users table (normalized)
 CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     phone VARCHAR(15) NOT NULL UNIQUE,
@@ -53,9 +45,7 @@ CREATE TABLE vendors (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- ===================== LOCATION ENTITIES =====================
 
--- Normalized locations table (reusable for pickup, drop, current positions)
 CREATE TABLE locations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     latitude DECIMAL(10,8) NOT NULL,
@@ -72,26 +62,26 @@ CREATE TABLE locations (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Driver current location tracking (real-time)
+
 CREATE TABLE driver_locations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     driver_id UUID NOT NULL REFERENCES drivers(id) ON DELETE CASCADE,
     latitude DECIMAL(10,8) NOT NULL,
     longitude DECIMAL(11,8) NOT NULL,
-    accuracy DECIMAL(8,2), -- GPS accuracy in meters
-    speed DECIMAL(8,2), -- Speed in km/h
-    heading DECIMAL(5,2), -- Direction in degrees (0-360)
-    altitude DECIMAL(10,2), -- Altitude in meters
+    accuracy DECIMAL(8,2),
+    speed DECIMAL(8,2),
+    heading DECIMAL(5,2),
+    altitude DECIMAL(10,2),
     address TEXT,
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Location history for route tracking
+
 CREATE TABLE location_history (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     driver_id UUID NOT NULL REFERENCES drivers(id) ON DELETE CASCADE,
-    load_id UUID, -- References loads(id), added later
+    load_id UUID,
     latitude DECIMAL(10,8) NOT NULL,
     longitude DECIMAL(11,8) NOT NULL,
     accuracy DECIMAL(8,2),
@@ -104,9 +94,6 @@ CREATE TABLE location_history (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- ===================== LOAD ENTITIES =====================
-
--- Normalized loads table
 CREATE TABLE loads (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     vendor_id UUID NOT NULL REFERENCES vendors(id) ON DELETE CASCADE,
@@ -377,24 +364,3 @@ COMMENT ON TABLE load_ratings IS 'Rating system between drivers and vendors';
 COMMENT ON TABLE geofences IS 'Proximity-based alert definitions';
 COMMENT ON TABLE geofence_events IS 'Geofence entry/exit event logging';
 
--- ===================== SAMPLE DATA MIGRATION QUERIES =====================
--- These would be used to migrate from the current denormalized schema
-
-/*
--- Example migration for users -> users + drivers/vendors
-INSERT INTO users (id, phone, username, name, user_type, verified, is_active, last_active_at, created_at, updated_at)
-SELECT id, phone, username, name, type, verified, "isActive", "lastActiveAt", "createdAt", "updatedAt"
-FROM "Users";
-
--- Migrate driver-specific data
-INSERT INTO drivers (id, license_number, vehicle_type, vehicle_capacity, vehicle_number, is_available, rating, total_trips, completed_trips, total_earnings)
-SELECT id, "licenseNumber", "vehicleType", "vehicleCapacity", "vehicleNumber", "isAvailable", rating, "totalTrips", "completedTrips", "totalEarnings"
-FROM "Users" 
-WHERE type = 'driver' AND "licenseNumber" IS NOT NULL;
-
--- Migrate vendor-specific data  
-INSERT INTO vendors (id, business_name, business_id, gst_number, rating, total_orders)
-SELECT id, "businessName", "businessId", "gstNumber", rating, "totalOrders"
-FROM "Users"
-WHERE type = 'vendor' AND "businessName" IS NOT NULL;
-*/

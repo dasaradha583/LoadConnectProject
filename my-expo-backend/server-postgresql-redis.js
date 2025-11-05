@@ -13,14 +13,11 @@ const GeocodingService = require('./geocoding-service');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Load environment variables
 require('dotenv').config();
 
-// JWT Secrets
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'your-super-secret-refresh-key-change-in-production';
 
-// Database connection
 const sequelize = new Sequelize({
   dialect: 'postgres',
   host: process.env.DB_HOST || 'localhost',
@@ -37,7 +34,6 @@ const sequelize = new Sequelize({
   }
 });
 
-// Redis connection
 const redisClient = Redis.createClient({
   host: process.env.REDIS_HOST || 'localhost',
   port: process.env.REDIS_PORT || 6379,
@@ -49,7 +45,6 @@ const redisClient = Redis.createClient({
 redisClient.on('connect', () => console.log('🔴 Redis connected'));
 redisClient.on('error', (err) => console.error('🔴 Redis error:', err));
 
-// Connect to Redis
 (async () => {
   try {
     await redisClient.connect();
@@ -58,11 +53,6 @@ redisClient.on('error', (err) => console.error('🔴 Redis error:', err));
   }
 })();
 
-// ===================== OLD MODELS - COMMENTED OUT =====================
-// These are replaced by normalized models from models-updated.js
-// Kept here for reference only
-
-// Define Enums (still used in code)
 const UserType = {
   DRIVER: 'driver',
   VENDOR: 'vendor'
@@ -86,187 +76,8 @@ const LoadPriority = {
   URGENT: 'urgent'
 };
 
-// OLD User and Load models commented out - using normalized models instead
-/*
-const User = sequelize.define('User', {
-  // ... old model definition ...
-});
 
-const Load = sequelize.define('Load', {
-  // ... old model definition ...
-});
 
-Load.belongsTo(User, { foreignKey: 'vendorId', as: 'vendor' });
-Load.belongsTo(User, { foreignKey: 'driverId', as: 'driver' });
-User.hasMany(Load, { foreignKey: 'vendorId', as: 'postedLoads' });
-User.hasMany(Load, { foreignKey: 'driverId', as: 'assignedLoads' });
-*/
-
-// ===================== OLD RATING MODEL - COMMENTED OUT =====================
-// Replaced by normalized models from models-updated.js
-
-/*
-const Rating = sequelize.define('Rating', {
-  id: {
-    type: DataTypes.UUID,
-    defaultValue: DataTypes.UUIDV4,
-    primaryKey: true
-  },
-  loadId: {
-    type: DataTypes.UUID,
-    allowNull: false,
-    field: 'load_id'
-  },
-  vendorId: {
-    type: DataTypes.UUID,
-    allowNull: false,
-    field: 'vendor_id'
-  },
-  driverId: {
-    type: DataTypes.UUID,
-    allowNull: false,
-    field: 'driver_id'
-  },
-  rating: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    validate: {
-      min: 1,
-      max: 5
-    }
-  },
-  review: {
-    type: DataTypes.TEXT,
-    allowNull: true
-  },
-  ratingAspects: {
-    type: DataTypes.JSONB,
-    allowNull: true,
-    comment: 'Individual aspect ratings like punctuality, behavior, etc.'
-  }
-}, {
-  tableName: 'ratings',
-  underscored: true,
-  timestamps: true
-});
-
-// Rating Associations
-Rating.belongsTo(Load, { foreignKey: 'loadId', as: 'load' });
-Rating.belongsTo(User, { foreignKey: 'vendorId', as: 'vendor' });
-Rating.belongsTo(User, { foreignKey: 'driverId', as: 'driver' });
-
-Load.hasOne(Rating, { foreignKey: 'loadId', as: 'rating' });
-User.hasMany(Rating, { foreignKey: 'driverId', as: 'receivedRatings' });
-User.hasMany(Rating, { foreignKey: 'vendorId', as: 'givenRatings' });
-*/
-
-// ===================== OLD NORMALIZED MODELS - COMMENTED OUT =====================
-// These are now loaded from models-updated.js which has the full normalized schema with admin support
-
-/*
-// Normalized Driver Model
-const Driver = sequelize.define('Driver', {
-  id: {
-    type: DataTypes.UUID,
-    defaultValue: DataTypes.UUIDV4,
-    primaryKey: true
-  },
-  userId: {
-    type: DataTypes.UUID,
-    allowNull: false,
-    field: 'user_id'
-  },
-  licenseNumber: {
-    type: DataTypes.STRING(50),
-    allowNull: false,
-    field: 'license_number'
-  },
-  licensePhotoUrl: {
-    type: DataTypes.STRING(500),
-    field: 'license_photo_url'
-  },
-  vehicleType: {
-    type: DataTypes.STRING(50),
-    allowNull: false,
-    field: 'vehicle_type'
-  },
-  vehicleCapacity: {
-    type: DataTypes.DECIMAL(8, 2),
-    allowNull: false,
-    field: 'vehicle_capacity'
-  },
-  vehicleNumber: {
-    type: DataTypes.STRING(20),
-    allowNull: false,
-    field: 'vehicle_number'
-  },
-  isAvailable: {
-    type: DataTypes.BOOLEAN,
-    defaultValue: true,
-    field: 'is_available'
-  },
-  rating: {
-    type: DataTypes.DECIMAL(3, 2),
-    defaultValue: 5.00
-  },
-  totalTrips: {
-    type: DataTypes.INTEGER,
-    defaultValue: 0,
-    field: 'total_trips'
-  },
-  completedTrips: {
-    type: DataTypes.INTEGER,
-    defaultValue: 0,
-    field: 'completed_trips'
-  },
-  totalEarnings: {
-    type: DataTypes.DECIMAL(12, 2),
-    defaultValue: 0,
-    field: 'total_earnings'
-  }
-}, {
-  tableName: 'drivers',
-  underscored: true
-});
-
-// Normalized Vendor Model
-const Vendor = sequelize.define('Vendor', {
-  id: {
-    type: DataTypes.UUID,
-    defaultValue: DataTypes.UUIDV4,
-    primaryKey: true
-  },
-  userId: {
-    type: DataTypes.UUID,
-    allowNull: false,
-    field: 'user_id'
-  },
-  businessName: {
-    type: DataTypes.STRING(100),
-    allowNull: false,
-    field: 'business_name'
-  },
-  // businessId removed - not in normalized schema
-  gstNumber: {
-    type: DataTypes.STRING(20),
-    field: 'gst_number'
-  },
-  rating: {
-    type: DataTypes.DECIMAL(3, 2),
-    defaultValue: 5.00
-  },
-  totalOrders: {
-    type: DataTypes.INTEGER,
-    defaultValue: 0,
-    field: 'total_orders'
-  }
-}, {
-  tableName: 'vendors',
-  underscored: true
-});
-*/
-
-// Normalized Location Model (still used for tracking)
 const Location = sequelize.define('Location', {
   id: {
     type: DataTypes.UUID,
@@ -304,7 +115,7 @@ const Location = sequelize.define('Location', {
     field: 'contact_phone'
   },
   locationType: {
-    type: DataTypes.STRING(20), // Use string instead of enum for now
+    type: DataTypes.STRING(20), 
     field: 'location_type'
   }
 }, {
@@ -312,7 +123,7 @@ const Location = sequelize.define('Location', {
   underscored: true
 });
 
-// Driver Current Location (Real-time)
+
 const DriverLocation = sequelize.define('DriverLocation', {
   id: {
     type: DataTypes.UUID,
@@ -322,7 +133,7 @@ const DriverLocation = sequelize.define('DriverLocation', {
   driverId: {
     type: DataTypes.UUID,
     allowNull: false,
-    field: 'driverId' // Keep existing field name
+    field: 'driverId' 
   },
   latitude: {
     type: DataTypes.DECIMAL(10, 8),
@@ -347,7 +158,7 @@ const DriverLocation = sequelize.define('DriverLocation', {
   tableName: 'driver_locations'
 });
 
-// Location History (Route tracking)
+
 const LocationHistory = sequelize.define('LocationHistory', {
   id: {
     type: DataTypes.UUID,
@@ -379,7 +190,7 @@ const LocationHistory = sequelize.define('LocationHistory', {
     allowNull: false
   },
   eventType: {
-    type: DataTypes.STRING(20), // Use string instead of enum for now
+    type: DataTypes.STRING(20), 
     field: 'event_type'
   },
   notes: DataTypes.TEXT
@@ -388,10 +199,7 @@ const LocationHistory = sequelize.define('LocationHistory', {
   underscored: true
 });
 
-// NOTE: Model associations are set up after normalizedModels initialization
-// See line ~575 where User, Load, Rating are assigned from normalizedModels
 
-// Redis Helper Class
 class RedisLogger {
   static async set(key, value, expirationSeconds) {
     try {
@@ -452,7 +260,7 @@ class RedisLogger {
   }
 }
 
-// Middleware
+
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -462,10 +270,10 @@ app.use(cors({
 
 app.use(express.json());
 
-// Serve uploaded files
+
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Enhanced logging middleware
+
 app.use((req, res, next) => {
   const timestamp = new Date().toISOString();
   console.log('\n' + '🟢'.repeat(80));
@@ -483,7 +291,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// Auth middleware
 const authenticateToken = async (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -497,8 +304,7 @@ const authenticateToken = async (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    
-    // Check if token is blacklisted
+  
     const isBlacklisted = await RedisLogger.get(`blacklisted_token:${token}`);
     if (isBlacklisted) {
       return res.status(401).json({
@@ -507,7 +313,6 @@ const authenticateToken = async (req, res, next) => {
       });
     }
 
-    // Get fresh user data from database
     const user = await User.findByPk(decoded.userId);
     if (!user || !user.isActive) {
       return res.status(401).json({
@@ -527,13 +332,13 @@ const authenticateToken = async (req, res, next) => {
   }
 };
 
-// Utility functions
+
 const generateTokens = async (userId, userType) => {
   const payload = { userId, userType };
   const accessToken = jwt.sign(payload, JWT_SECRET, { expiresIn: '24h' });
   const refreshToken = jwt.sign(payload, JWT_REFRESH_SECRET, { expiresIn: '7d' });
   
-  // Store tokens in Redis
+
   await RedisLogger.set(`access_token:${userId}`, accessToken, 24 * 60 * 60);
   await RedisLogger.set(`refresh_token:${userId}`, refreshToken, 7 * 24 * 60 * 60);
   
@@ -546,23 +351,21 @@ const generateOTP = () => {
     : '123456';
 };
 
-// ===================== ADMIN SYSTEM INTEGRATION =====================
 
-// Import normalized models and admin routes
 const { defineModels, UserType: UserTypeEnum, ApprovalStatus, DocumentType } = require('./models-updated');
 const { createAdminRoutes } = require('./admin-routes');
 const { createRegistrationRoutes } = require('./registration-routes');
 
-// Initialize normalized models
+
 const normalizedModels = defineModels(sequelize);
 
-// Use normalized models for backward compatibility with existing code
+
 const User = normalizedModels.User;
 const Driver = normalizedModels.Driver;
 const Vendor = normalizedModels.Vendor;
 const Admin = normalizedModels.Admin;
 
-// Define Load model (not in normalized models yet)
+
 const Load = sequelize.define('Load', {
   id: {
     type: DataTypes.UUID,
@@ -772,7 +575,7 @@ const Load = sequelize.define('Load', {
   timestamps: true
 });
 
-// Define Rating model
+
 const Rating = sequelize.define('Rating', {
   id: {
     type: DataTypes.UUID,
@@ -872,13 +675,12 @@ const Rating = sequelize.define('Rating', {
   timestamps: true
 });
 
-// Set up Load associations
+
 Load.belongsTo(User, { foreignKey: 'vendorId', as: 'vendor' });
 Load.belongsTo(User, { foreignKey: 'driverId', as: 'driver' });
 User.hasMany(Load, { foreignKey: 'vendorId', as: 'postedLoads' });
 User.hasMany(Load, { foreignKey: 'driverId', as: 'assignedLoads' });
 
-// Set up Rating associations
 Rating.belongsTo(Load, { foreignKey: 'loadId', as: 'load' });
 Rating.belongsTo(User, { foreignKey: 'vendorId', as: 'vendor' });
 Rating.belongsTo(User, { foreignKey: 'driverId', as: 'driver' });
@@ -886,20 +688,19 @@ Load.hasOne(Rating, { foreignKey: 'loadId', as: 'rating' });
 User.hasMany(Rating, { foreignKey: 'driverId', as: 'receivedRatings' });
 User.hasMany(Rating, { foreignKey: 'vendorId', as: 'givenRatings' });
 
-// NOTE: User, Driver, Vendor, Admin associations are already set up in models-updated.js defineModels()
-// No need to duplicate those associations here
 
-// Mount admin routes
+
+
 app.use('/api', createAdminRoutes(normalizedModels, JWT_SECRET, redisClient));
 app.use('/api', createRegistrationRoutes(normalizedModels));
 
 console.log('✅ Admin system integrated successfully');
 
-// ===================== HEALTH & DIAGNOSTICS =====================
+
 
 app.get('/health', async (req, res) => {
   try {
-    // Test database connections
+
     const dbStatus = await User.count();
     
     res.json({
@@ -926,7 +727,7 @@ app.get('/health', async (req, res) => {
   }
 });
 
-// ===================== AUTH ENDPOINTS =====================
+
 
 app.post('/auth/send-otp', async (req, res) => {
   try {
@@ -940,12 +741,15 @@ app.post('/auth/send-otp', async (req, res) => {
     }
 
     const otp = generateOTP();
-    await RedisLogger.set(`otp:${phone}`, otp, 300); // 5 minutes
+    await RedisLogger.set(`otp:${phone}`, otp, 300); 
 
     console.log(`📱 Generated OTP for ${phone}: ${otp}`);
 
-    // Check if user exists
-    const existingUser = await User.findOne({ where: { phone } });
+    // Use specific column selection to avoid the email field
+    const existingUser = await User.findOne({ 
+      where: { phone },
+      attributes: ['id', 'phone', 'username', 'name', 'user_type', 'is_active', 'phone_verified', 'approval_status']
+    });
 
     res.json({
       success: true,
@@ -977,7 +781,6 @@ app.post('/auth/signin', async (req, res) => {
       });
     }
 
-    // Verify OTP
     const storedOtp = await RedisLogger.get(`otp:${phone}`);
     if (!storedOtp || storedOtp !== otp) {
       return res.status(400).json({
@@ -986,7 +789,6 @@ app.post('/auth/signin', async (req, res) => {
       });
     }
 
-    // Find user
     const user = await User.findOne({ where: { phone } });
     if (!user) {
       return res.status(404).json({
@@ -995,16 +797,15 @@ app.post('/auth/signin', async (req, res) => {
       });
     }
 
-    // Clear OTP
+
     await RedisLogger.del(`otp:${phone}`);
 
-    // Update last active time
+
     await user.update({ lastActiveAt: new Date() });
 
-    // Generate tokens
+
     const tokens = await generateTokens(user.id, user.userType);
 
-    // Cache user session
     await RedisLogger.set(`user_session:${user.id}`, JSON.stringify({
       id: user.id,
       type: user.userType,
@@ -1051,7 +852,6 @@ app.post('/auth/register/driver', async (req, res) => {
       });
     }
 
-    // Verify OTP
     const storedOtp = await RedisLogger.get(`otp:${phone}`);
     if (!storedOtp || storedOtp !== otp) {
       return res.status(400).json({
@@ -1060,7 +860,7 @@ app.post('/auth/register/driver', async (req, res) => {
       });
     }
 
-    // Check if user already exists
+
     const existingUser = await User.findOne({ where: { phone } });
     if (existingUser) {
       return res.status(409).json({
@@ -1069,7 +869,6 @@ app.post('/auth/register/driver', async (req, res) => {
       });
     }
 
-    // Create new driver
     const driver = await User.create({
       userType: UserType.DRIVER,
       phone,
@@ -1089,7 +888,7 @@ app.post('/auth/register/driver', async (req, res) => {
       lastActiveAt: new Date()
     });
 
-    // Create Driver profile in separate drivers table
+
     const driverProfile = await Driver.create({
       userId: driver.id,
       licenseNumber,
@@ -1103,10 +902,10 @@ app.post('/auth/register/driver', async (req, res) => {
       totalEarnings: 0.0
     });
 
-    // Clear OTP
+
     await RedisLogger.del(`otp:${phone}`);
 
-    // Generate tokens
+    
     const tokens = await generateTokens(driver.id, driver.userType);
 
     res.status(201).json({
@@ -1148,7 +947,7 @@ app.post('/auth/register/vendor', async (req, res) => {
       });
     }
 
-    // Verify OTP
+
     const storedOtp = await RedisLogger.get(`otp:${phone}`);
     if (!storedOtp || storedOtp !== otp) {
       return res.status(400).json({
@@ -1157,7 +956,7 @@ app.post('/auth/register/vendor', async (req, res) => {
       });
     }
 
-    // Check if user already exists
+
     const existingUser = await User.findOne({ where: { phone } });
     if (existingUser) {
       return res.status(409).json({
@@ -1166,7 +965,7 @@ app.post('/auth/register/vendor', async (req, res) => {
       });
     }
 
-    // Create User record with userType
+
     const user = await User.create({
       userType: 'vendor',
       phone,
@@ -1178,7 +977,7 @@ app.post('/auth/register/vendor', async (req, res) => {
       lastActiveAt: new Date()
     });
 
-    // Create Vendor profile in separate table
+
     const vendor = await Vendor.create({
       userId: user.id,
       businessName,
@@ -1187,10 +986,9 @@ app.post('/auth/register/vendor', async (req, res) => {
       totalOrders: 0
     });
 
-    // Clear OTP
     await RedisLogger.del(`otp:${phone}`);
 
-    // Generate tokens
+
     const tokens = await generateTokens(user.id, user.userType);
 
     res.status(201).json({
@@ -1225,12 +1023,10 @@ app.post('/auth/signout', authenticateToken, async (req, res) => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
 
-    // Blacklist the current token
     if (token) {
       await RedisLogger.set(`blacklisted_token:${token}`, 'true', 24 * 60 * 60);
     }
 
-    // Remove user session
     await RedisLogger.del(`user_session:${userId}`);
     await RedisLogger.del(`access_token:${userId}`);
     await RedisLogger.del(`refresh_token:${userId}`);
@@ -1251,13 +1047,13 @@ app.post('/auth/signout', authenticateToken, async (req, res) => {
   }
 });
 
-// Profile update endpoints
+
 app.put('/auth/profile/driver', authenticateToken, async (req, res) => {
   try {
     const { licenseNumber, vehicleType, vehicleCapacity, vehicleNumber, name, isAvailable } = req.body;
     const userId = req.user.userId;
 
-    // Find the driver
+
     const driver = await User.findOne({ where: { id: userId, userType: 'driver' } });
     if (!driver) {
       return res.status(404).json({
@@ -1266,7 +1062,7 @@ app.put('/auth/profile/driver', authenticateToken, async (req, res) => {
       });
     }
 
-    // Update driver profile in Users table
+
     const updateData = {};
     if (name) updateData.name = name;
     if (licenseNumber) updateData.licenseNumber = licenseNumber;
@@ -1278,7 +1074,6 @@ app.put('/auth/profile/driver', authenticateToken, async (req, res) => {
 
     await driver.update(updateData);
 
-    // Broadcast driver availability change if it was updated
     if (typeof isAvailable === 'boolean' && driver.latitude && driver.longitude) {
       broadcastDriverAvailabilityChange({
         latitude: driver.latitude,
@@ -1286,7 +1081,7 @@ app.put('/auth/profile/driver', authenticateToken, async (req, res) => {
       }, isAvailable);
     }
 
-    // Create or update Driver profile in drivers table
+
     const driverProfileData = {
       userId: driver.id,
       isAvailable: typeof isAvailable === 'boolean' ? isAvailable : driver.isAvailable,
@@ -1301,7 +1096,7 @@ app.put('/auth/profile/driver', authenticateToken, async (req, res) => {
     if (vehicleCapacity) driverProfileData.vehicleCapacity = parseFloat(vehicleCapacity);
     if (vehicleNumber) driverProfileData.vehicleNumber = vehicleNumber.toUpperCase();
 
-    // Use upsert to create if not exists, update if exists
+
     await Driver.upsert(driverProfileData);
 
     console.log(`✅ Driver profile updated for user ${userId}`);
@@ -1347,7 +1142,7 @@ app.put('/auth/profile/vendor', authenticateToken, async (req, res) => {
     const { businessName, gstNumber, name } = req.body;
     const userId = req.user.userId;
 
-    // Find the user
+
     const user = await User.findOne({ where: { id: userId, userType: 'vendor' } });
     if (!user) {
       return res.status(404).json({
@@ -1356,7 +1151,6 @@ app.put('/auth/profile/vendor', authenticateToken, async (req, res) => {
       });
     }
 
-    // Find the vendor profile
     const vendor = await Vendor.findOne({ where: { userId: userId } });
     if (!vendor) {
       return res.status(404).json({
@@ -1365,12 +1159,10 @@ app.put('/auth/profile/vendor', authenticateToken, async (req, res) => {
       });
     }
 
-    // Update user table if name changed
     if (name && name !== user.name) {
       await user.update({ name, updatedAt: new Date() });
     }
 
-    // Update vendor table
     const vendorUpdateData = {};
     if (businessName) vendorUpdateData.businessName = businessName;
     if (gstNumber) vendorUpdateData.gstNumber = gstNumber.toUpperCase();
@@ -1380,7 +1172,7 @@ app.put('/auth/profile/vendor', authenticateToken, async (req, res) => {
       await vendor.update(vendorUpdateData);
     }
 
-    // Reload to get updated data
+
     await user.reload();
     await vendor.reload();
 
@@ -1415,7 +1207,6 @@ app.put('/auth/profile/vendor', authenticateToken, async (req, res) => {
   }
 });
 
-// Get full user profile endpoint
 app.get('/auth/profile', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
@@ -1423,7 +1214,6 @@ app.get('/auth/profile', authenticateToken, async (req, res) => {
 
     console.log(`🔍 Profile Request - User ID: ${userId}, Type from token: ${userType}`);
 
-    // Find the user
     const user = await User.findByPk(userId);
     if (!user) {
       return res.status(404).json({
@@ -1434,7 +1224,6 @@ app.get('/auth/profile', authenticateToken, async (req, res) => {
 
     console.log(`🔍 Profile Request - Type from DB: ${user.userType}`);
 
-    // Base user data
     const userData = {
       id: user.id,
       type: user.userType,
@@ -1451,9 +1240,8 @@ app.get('/auth/profile', authenticateToken, async (req, res) => {
       updatedAt: user.updatedAt
     };
 
-    // Return data based on user type (use DB user type, not token type)
     if (user.userType === 'driver') {
-      // Get driver profile
+
       const driver = await Driver.findOne({ where: { userId: user.id } });
       
       if (!driver) {
@@ -1485,7 +1273,7 @@ app.get('/auth/profile', authenticateToken, async (req, res) => {
         message: 'Driver profile retrieved successfully'
       });
     } else if (user.userType === 'vendor') {
-      // Get vendor profile
+
       const vendor = await Vendor.findOne({ where: { userId: user.id } });
       
       if (!vendor) {
@@ -1512,7 +1300,7 @@ app.get('/auth/profile', authenticateToken, async (req, res) => {
         message: 'Vendor profile retrieved successfully'
       });
     } else if (user.userType === 'admin') {
-      // Get admin profile
+
       const admin = await Admin.findOne({ where: { userId: user.id } });
       
       res.json({
@@ -1530,7 +1318,7 @@ app.get('/auth/profile', authenticateToken, async (req, res) => {
         message: 'Admin profile retrieved successfully'
       });
     } else {
-      // Basic user with no additional profile
+
       res.json({
         success: true,
         data: { user: userData },
@@ -1547,13 +1335,10 @@ app.get('/auth/profile', authenticateToken, async (req, res) => {
   }
 });
 
-// ===================== LOAD ENDPOINTS =====================
 
-// Enhanced geocoding with more locations including smaller cities/towns
 const geocodeAddress = async (address) => {
-  // Extended location database covering major cities and important towns
+
   const locationDatabase = {
-    // Major cities
     'bangalore': { lat: 12.9716, lng: 77.5946 },
     'mumbai': { lat: 19.0760, lng: 72.8777 },
     'delhi': { lat: 28.7041, lng: 77.1025 },
@@ -1574,8 +1359,7 @@ const geocodeAddress = async (address) => {
     'vadodara': { lat: 22.3072, lng: 73.1812 },
     'ghaziabad': { lat: 28.6692, lng: 77.4538 },
     'ludhiana': { lat: 30.9010, lng: 75.8573 },
-    
-    // Andhra Pradesh / Telangana cities and towns
+
     'guntur': { lat: 16.3067, lng: 80.4365 },
     'markapur': { lat: 15.7326, lng: 79.2670 },
     'vijayawada': { lat: 16.5062, lng: 80.6480 },
@@ -1596,7 +1380,6 @@ const geocodeAddress = async (address) => {
     'mahbubnagar': { lat: 16.7302, lng: 77.9777 },
     'adilabad': { lat: 19.6715, lng: 78.5311 },
     
-    // Other important towns/cities
     'coimbatore': { lat: 11.0168, lng: 76.9558 },
     'madurai': { lat: 9.9252, lng: 78.1198 },
     'salem': { lat: 11.6643, lng: 78.1460 },
@@ -1608,31 +1391,30 @@ const geocodeAddress = async (address) => {
     'dindigul': { lat: 10.3673, lng: 77.9803 },
     'cuddalore': { lat: 11.7593, lng: 79.7711 },
     
-    // Alternative spellings and common variations
-    'vizag': { lat: 17.6868, lng: 83.2185 }, // Visakhapatnam
-    'hyd': { lat: 17.3850, lng: 78.4867 }, // Hyderabad
-    'blr': { lat: 12.9716, lng: 77.5946 }, // Bangalore
+
+    'vizag': { lat: 17.6868, lng: 83.2185 }, 
+    'hyd': { lat: 17.3850, lng: 78.4867 }, 
+    'blr': { lat: 12.9716, lng: 77.5946 }, 
     'chennai': { lat: 13.0827, lng: 80.2707 },
-    'madras': { lat: 13.0827, lng: 80.2707 }, // Chennai old name
-    'kunata': { lat: 15.9011, lng: 79.3017 }, // Kunta, Prakasam district
-    'kunta': { lat: 15.9011, lng: 79.3017 }, // Kunta, Prakasam district
+    'madras': { lat: 13.0827, lng: 80.2707 }, 
+    'kunata': { lat: 15.9011, lng: 79.3017 }, 
+    'kunta': { lat: 15.9011, lng: 79.3017 }, 
   };
   
   const addressLower = address.toLowerCase().trim();
   
-  // First, try exact matches
+
   for (const [location, coords] of Object.entries(locationDatabase)) {
     if (addressLower.includes(location)) {
       console.log(`🗺️  Geocoded "${address}" to ${location}: ${coords.lat}, ${coords.lng}`);
-      // Add small random offset to avoid all loads having exact same coordinates
+
       return {
-        lat: coords.lat + (Math.random() - 0.5) * 0.02, // ~1km variation
+        lat: coords.lat + (Math.random() - 0.5) * 0.02, 
         lng: coords.lng + (Math.random() - 0.5) * 0.02
       };
     }
   }
   
-  // If no match found, log warning and default to Bangalore
   console.warn(`⚠️  Location "${address}" not found in database. Using Bangalore as fallback.`);
   console.warn(`💡 Consider adding "${addressLower}" to the location database for better accuracy.`);
   
@@ -1671,7 +1453,6 @@ app.post('/loads', authenticateToken, async (req, res) => {
       specialInstructions
     } = req.body;
 
-    // Validate required fields - coordinates are now required (from map selection)
     if (!weight || !description || !budget) {
       return res.status(400).json({
         success: false,
@@ -1679,7 +1460,6 @@ app.post('/loads', authenticateToken, async (req, res) => {
       });
     }
 
-    // Validate pickup location (lat/lng required from map)
     if (!pickupLat || !pickupLng) {
       return res.status(400).json({
         success: false,
@@ -1687,7 +1467,7 @@ app.post('/loads', authenticateToken, async (req, res) => {
       });
     }
 
-    // Validate drop location (lat/lng required from map)
+
     if (!dropLat || !dropLng) {
       return res.status(400).json({
         success: false,
@@ -1695,17 +1475,17 @@ app.post('/loads', authenticateToken, async (req, res) => {
       });
     }
 
-    // Use provided coordinates directly (from map selection)
+
     let finalPickupLat = parseFloat(pickupLat);
     let finalPickupLng = parseFloat(pickupLng);
     let finalDropLat = parseFloat(dropLat);
     let finalDropLng = parseFloat(dropLng);
     
-    // Check if addresses are just coordinates (need reverse geocoding)
+
     const isPickupAddressCoords = pickupAddress && /^\d+\.\d+,\s*\d+\.\d+$/.test(pickupAddress.trim());
     const isDropAddressCoords = dropAddress && /^\d+\.\d+,\s*\d+\.\d+$/.test(dropAddress.trim());
     
-    // Do reverse geocoding if address is missing or is just coordinates
+
     let finalPickupAddress = pickupAddress;
     let finalDropAddress = dropAddress;
     
@@ -1735,7 +1515,7 @@ app.post('/loads', authenticateToken, async (req, res) => {
     console.log(`   Pickup: ${finalPickupAddress} (${finalPickupLat}, ${finalPickupLng})`);
     console.log(`   Drop: ${finalDropAddress} (${finalDropLat}, ${finalDropLng})`);
 
-    // Create load with map-selected coordinates
+
     const load = await Load.create({
       vendorId: req.user.userId,
       weight: parseFloat(weight),
@@ -1777,13 +1557,13 @@ app.post('/loads', authenticateToken, async (req, res) => {
   }
 });
 
-// Helper function to transform load data for frontend
+
 function formatLoadForFrontend(load) {
   const loadData = load.toJSON ? load.toJSON() : load;
   
   return {
     ...loadData,
-    // Transform flat fields to nested structure expected by frontend
+
     pickupLocation: {
       latitude: parseFloat(loadData.pickupLat),
       longitude: parseFloat(loadData.pickupLng),
@@ -1794,10 +1574,10 @@ function formatLoadForFrontend(load) {
       longitude: parseFloat(loadData.dropLng),
       address: loadData.dropAddress || `${loadData.dropLat}, ${loadData.dropLng}`
     },
-    // Keep flat fields for backward compatibility
+
     pickupAddress: loadData.pickupAddress,
     dropAddress: loadData.dropAddress,
-    // Convert numeric strings to numbers
+
     weight: parseFloat(loadData.weight),
     budget: parseFloat(loadData.budget),
     finalAmount: loadData.finalAmount ? parseFloat(loadData.finalAmount) : null,
@@ -1816,9 +1596,8 @@ app.get('/loads/available', authenticateToken, async (req, res) => {
     }
 
     const driverId = req.user.userId;
-    const { lat, lng } = req.query; // No radius parameter needed - we use progressive search
+    const { lat, lng } = req.query; 
 
-    // Get driver details for matching
     const user = await User.findByPk(driverId);
     if (!user) {
       return res.status(404).json({
@@ -1827,7 +1606,6 @@ app.get('/loads/available', authenticateToken, async (req, res) => {
       });
     }
 
-    // Get driver profile for vehicle details
     const driver = await Driver.findOne({ where: { userId: driverId } });
     if (!driver) {
       return res.status(404).json({
@@ -1838,7 +1616,7 @@ app.get('/loads/available', authenticateToken, async (req, res) => {
 
     console.log(`🚗 Driver vehicle: ${driver.vehicleType}, capacity: ${driver.vehicleCapacity}`);
 
-    // Check if driver already has an active load
+
     const activeLoad = await Load.findOne({
       where: {
         driverId: driverId,
@@ -1849,10 +1627,10 @@ app.get('/loads/available', authenticateToken, async (req, res) => {
     });
 
     if (activeLoad) {
-      // Return success with empty loads and active load info for display
+
       return res.json({
         success: true,
-        data: [], // No available loads to show
+        data: [], 
         message: 'You have an active load',
         hasActiveLoad: true,
         activeLoad: {
@@ -1871,37 +1649,36 @@ app.get('/loads/available', authenticateToken, async (req, res) => {
       driverId: null
     };
 
-    // If location provided, add distance-based filtering with progressive radius
+
     let orderClause = [['createdAt', 'DESC']];
     
     if (lat && lng) {
-      // Using Haversine formula for distance calculation
-      const earthRadius = 6371; // km
+
+      const earthRadius = 6371; 
       
-      // Convert to numeric
+
       const driverLat = parseFloat(lat);
       const driverLng = parseFloat(lng);
       
-      // Progressive search radii in km: 50 -> 100 -> 200 -> 250
+
       const searchRadii = [50, 100, 200, 250];
       
       console.log(`🌍 Starting progressive radius search from driver location: ${driverLat}, ${driverLng}`);
       
-      // Get all available loads first
+
       const allLoads = await Load.findAll({
         where: whereClause,
         order: orderClause,
-        limit: 100 // Get more to filter by distance
+        limit: 100 
       });
 
       console.log(`📦 Total available loads in database: ${allLoads.length}`);
 
-      // Calculate distances for all loads
+
       const loadsWithDistance = allLoads.map(load => {
         const loadLat = load.pickupLat;
         const loadLng = load.pickupLng;
         
-        // Calculate distance using Haversine formula (in kilometers)
         const dLat = (loadLat - driverLat) * Math.PI / 180;
         const dLng = (loadLng - driverLng) * Math.PI / 180;
         
@@ -1910,32 +1687,28 @@ app.get('/loads/available', authenticateToken, async (req, res) => {
                 Math.sin(dLng/2) * Math.sin(dLng/2);
         
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-        const distance = earthRadius * c; // Distance in km
-        
-        // Calculate match score based on multiple factors
-        let matchScore = 50; // Base score
-        
-        // Distance scoring (closer = higher score)
+        const distance = earthRadius * c; 
+        let matchScore = 50; 
         if (distance <= 5) matchScore += 40;
         else if (distance <= 15) matchScore += 30;
         else if (distance <= 30) matchScore += 20;
         else if (distance <= 50) matchScore += 10;
         
-        // Vehicle type matching
+
         if (load.vehicleTypeRequired === driver.vehicleType) {
           matchScore += 25;
         }
         
-        // Capacity matching
+
         if (driver.vehicleCapacity && driver.vehicleCapacity >= load.weight) {
           matchScore += 15;
         }
         
-        // Budget consideration (higher budget = higher score)
+
         if (load.budget >= 5000) matchScore += 10;
         else if (load.budget >= 2000) matchScore += 5;
         
-        // Calculate trip distance (pickup to drop)
+
         const tripDLat = (load.dropLat - load.pickupLat) * Math.PI / 180;
         const tripDLng = (load.dropLng - load.pickupLng) * Math.PI / 180;
         const tripA = Math.sin(tripDLat/2) * Math.sin(tripDLat/2) +
@@ -1946,12 +1719,11 @@ app.get('/loads/available', authenticateToken, async (req, res) => {
         
         return {
           ...load.toJSON(),
-          distance: Math.round(distance * 10) / 10, // Distance from driver to pickup (in km)
-          estimatedDistance: Math.round(tripDistance * 10) / 10, // Distance from pickup to drop (in km)
+          distance: Math.round(distance * 10) / 10, 
+          estimatedDistance: Math.round(tripDistance * 10) / 10, 
           matchScore: Math.min(matchScore, 100),
-          estimatedTime: Math.ceil(distance / 60 * 60), // Time to reach pickup (rough estimate: 60km/h)
-          estimatedTripDuration: Math.ceil(tripDistance / 50 * 60), // Trip duration in minutes (50km/h avg)
-          // Transform to frontend format
+          estimatedTime: Math.ceil(distance / 60 * 60), 
+          estimatedTripDuration: Math.ceil(tripDistance / 50 * 60),
           pickupLocation: {
             latitude: parseFloat(load.pickupLat),
             longitude: parseFloat(load.pickupLng),
@@ -1962,14 +1734,12 @@ app.get('/loads/available', authenticateToken, async (req, res) => {
             longitude: parseFloat(load.dropLng),
             address: load.dropAddress || `${load.dropLat}, ${load.dropLng}`
           },
-          // Convert numeric fields
+
           weight: parseFloat(load.weight),
           budget: parseFloat(load.budget)
         };
       })
-      .sort((a, b) => b.matchScore - a.matchScore); // Sort by match score
-
-      // Progressive radius search: 50km -> 100km -> 200km -> 250km
+      .sort((a, b) => b.matchScore - a.matchScore); 
       let foundLoads = [];
       let usedRadius = 0;
 
@@ -1979,7 +1749,7 @@ app.get('/loads/available', authenticateToken, async (req, res) => {
         
         if (foundLoads.length > 0) {
           usedRadius = radius;
-          foundLoads = foundLoads.slice(0, 20); // Limit to 20 best matches
+          foundLoads = foundLoads.slice(0, 20); 
           console.log(`✅ Found loads within ${radius}km radius`);
           foundLoads.forEach(load => {
             console.log(`   📍 Load ${load.id.substring(0, 8)}: ${load.distance}km away, score: ${load.matchScore}`);
@@ -1988,7 +1758,7 @@ app.get('/loads/available', authenticateToken, async (req, res) => {
         }
       }
 
-      // If no loads found even at 250km, show the closest loads
+
       if (foundLoads.length === 0) {
         console.log(`❌ No loads found within 250km. Showing closest loads:`);
         const sortedByDistance = [...loadsWithDistance].sort((a, b) => a.distance - b.distance);
@@ -2014,33 +1784,31 @@ app.get('/loads/available', authenticateToken, async (req, res) => {
       });
 
     } else {
-      // Fallback: no location provided, return loads with basic matching
+
       const availableLoads = await Load.findAll({
         where: whereClause,
         order: orderClause,
         limit: 20
       });
 
-      // Add basic match scores without location
+
       const loadsWithScore = availableLoads.map(load => {
-        let matchScore = 50; // Base score
-        
-        // Vehicle type matching
+        let matchScore = 50; 
         if (load.vehicleTypeRequired === driver.vehicleType) {
           matchScore += 25;
         }
         
-        // Capacity matching  
+ 
         if (driver.vehicleCapacity && driver.vehicleCapacity >= load.weight) {
           matchScore += 15;
         }
         
-        // Budget consideration
+
         if (load.budget >= 5000) matchScore += 10;
         else if (load.budget >= 2000) matchScore += 5;
         
-        // Calculate trip distance (pickup to drop) even without driver location
-        const earthRadius = 6371; // km
+
+        const earthRadius = 6371;
         const tripDLat = (load.dropLat - load.pickupLat) * Math.PI / 180;
         const tripDLng = (load.dropLng - load.pickupLng) * Math.PI / 180;
         const tripA = Math.sin(tripDLat/2) * Math.sin(tripDLat/2) +
@@ -2052,11 +1820,10 @@ app.get('/loads/available', authenticateToken, async (req, res) => {
         return {
           ...load.toJSON(),
           matchScore: Math.min(matchScore, 100),
-          distance: null, // Distance from driver to pickup (unknown without driver location)
-          estimatedDistance: Math.round(tripDistance * 10) / 10, // Distance from pickup to drop (in km)
+          distance: null,
+          estimatedDistance: Math.round(tripDistance * 10) / 10, 
           estimatedTime: null,
-          estimatedTripDuration: Math.ceil(tripDistance / 50 * 60), // Trip duration in minutes
-          // Transform to frontend format
+          estimatedTripDuration: Math.ceil(tripDistance / 50 * 60),
           pickupLocation: {
             latitude: parseFloat(load.pickupLat),
             longitude: parseFloat(load.pickupLng),
@@ -2067,7 +1834,6 @@ app.get('/loads/available', authenticateToken, async (req, res) => {
             longitude: parseFloat(load.dropLng),
             address: load.dropAddress || `${load.dropLat}, ${load.dropLng}`
           },
-          // Convert numeric fields
           weight: parseFloat(load.weight),
           budget: parseFloat(load.budget)
         };
@@ -2550,6 +2316,14 @@ app.get('/loads/:loadId/driver-location', authenticateToken, async (req, res) =>
       return res.status(400).json({
         success: false,
         message: 'Load not yet accepted by any driver'
+      });
+    }
+
+    // Check if load is completed or cancelled
+    if (load.status === LoadStatus.COMPLETED || load.status === LoadStatus.CANCELLED) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot track driver location after load is ${load.status.toLowerCase()}`
       });
     }
 
