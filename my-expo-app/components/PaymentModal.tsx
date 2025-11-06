@@ -110,7 +110,7 @@ export default function PaymentModal({
               placeholderTextColor="#999"
               value={upiId}
               onChangeText={setUpiId}
-              keyboardType="email-address"
+              keyboardType="default"
               autoCapitalize="none"
             />
             <View style={styles.popularUpiContainer}>

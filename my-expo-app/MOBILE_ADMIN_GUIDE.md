@@ -35,7 +35,7 @@ my-expo-app/app/admin/
 - **Pull to Refresh**: Update stats in real-time
 
 ### Pending Users Screen:
-- **User Cards**: Name, phone, email, type (driver/vendor)
+- **User Cards**: Name, phone, type (driver/vendor)
 - **Document Status**: Shows verified documents count
 - **Actions**: 
   - ✓ Approve - Activates user account

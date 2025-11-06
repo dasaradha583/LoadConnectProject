@@ -745,10 +745,10 @@ app.post('/auth/send-otp', async (req, res) => {
 
     console.log(`📱 Generated OTP for ${phone}: ${otp}`);
 
-    // Use specific column selection to avoid the email field
+
     const existingUser = await User.findOne({ 
       where: { phone },
-      attributes: ['id', 'phone', 'username', 'name', 'user_type', 'is_active', 'phone_verified', 'approval_status']
+      attributes: ['id', 'phone', 'username', 'name', 'user_type', 'is_active', 'is_verified', 'approval_status']
     });
 
     res.json({
@@ -823,9 +823,8 @@ app.post('/auth/signin', async (req, res) => {
           phone: user.phone,
           username: user.username,
           name: user.name,
-          phoneVerified: user.phoneVerified,
-          approvalStatus: user.approvalStatus,
-          verified: user.phoneVerified
+          verified: user.verified,
+          approvalStatus: user.approvalStatus
         },
         tokens
       },
@@ -971,7 +970,7 @@ app.post('/auth/register/vendor', async (req, res) => {
       phone,
       username: phone,
       name,
-      phoneVerified: true,
+      verified: true,
       isActive: true,
       approvalStatus: 'pending',
       lastActiveAt: new Date()
@@ -1230,10 +1229,8 @@ app.get('/auth/profile', authenticateToken, async (req, res) => {
       phone: user.phone,
       username: user.username,
       name: user.name,
-      email: user.email,
-      phoneVerified: user.phoneVerified,
-      emailVerified: user.emailVerified,
-      isActive: user.isActive,
+      verified: user.verified,
+      is_active: user.is_active,
       approvalStatus: user.approvalStatus,
       lastActiveAt: user.lastActiveAt,
       createdAt: user.createdAt,

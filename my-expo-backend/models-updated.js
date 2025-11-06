@@ -73,21 +73,12 @@ function defineModels(sequelize) {
       defaultValue: true,
       field: 'is_active'
     },
-    isVerified: {
+    verified: {
       type: DataTypes.BOOLEAN,
       defaultValue: false,
-      field: 'is_verified'
+      field: 'verified'
     },
-    phoneVerified: {
-      type: DataTypes.BOOLEAN,
-      defaultValue: false,
-      field: 'phone_verified'
-    },
-    approvalStatus: {
-      type: DataTypes.ENUM('pending', 'approved', 'rejected', 'suspended'),
-      defaultValue: 'pending',
-      field: 'approval_status'
-    },
+
     approvedBy: {
       type: DataTypes.UUID,
       allowNull: true,
@@ -259,11 +250,10 @@ function defineModels(sequelize) {
       unique: true,
       field: 'user_id'
     },
-    licenseNumber: {
+    license_number: {
       type: DataTypes.STRING(50),
       allowNull: false,
-      unique: true,
-      field: 'license_number'
+      unique: true
     },
     licenseExpiryDate: {
       type: DataTypes.DATEONLY,
@@ -290,10 +280,9 @@ function defineModels(sequelize) {
       allowNull: true,
       field: 'license_rejection_reason'
     },
-    vehicleType: {
+    vehicle_type: {
       type: DataTypes.STRING(50),
-      allowNull: false,
-      field: 'vehicle_type'
+      allowNull: false
     },
     vehicleCapacity: {
       type: DataTypes.DECIMAL(8, 2),
@@ -361,10 +350,9 @@ function defineModels(sequelize) {
       allowNull: true,
       field: 'insurance_provider'
     },
-    isAvailable: {
+    is_available: {
       type: DataTypes.BOOLEAN,
-      defaultValue: true,
-      field: 'is_available'
+      defaultValue: true
     },
     currentLocationLat: {
       type: DataTypes.DECIMAL(10, 8),
@@ -449,10 +437,9 @@ function defineModels(sequelize) {
       unique: true,
       field: 'user_id'
     },
-    businessName: {
+    business_name: {
       type: DataTypes.STRING(100),
-      allowNull: false,
-      field: 'business_name'
+      allowNull: false
     },
     businessType: {
       type: DataTypes.STRING(50),
@@ -468,11 +455,10 @@ function defineModels(sequelize) {
       type: DataTypes.STRING(100),
       allowNull: true
     },
-    gstNumber: {
+    gst_number: {
       type: DataTypes.STRING(20),
       unique: true,
-      allowNull: true,
-      field: 'gst_number'
+      allowNull: true
     },
     gstVerified: {
       type: DataTypes.BOOLEAN,

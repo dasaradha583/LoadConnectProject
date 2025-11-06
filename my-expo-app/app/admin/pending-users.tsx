@@ -20,7 +20,7 @@ interface User {
   name: string;
   username: string;
   phoneNumber: string;
-  email?: string;
+
   userType: 'driver' | 'vendor';
   approvalStatus: string;
   createdAt: string;
@@ -160,7 +160,7 @@ export default function PendingUsers() {
         <View style={styles.userInfo}>
           <Text style={styles.userName}>{item.name}</Text>
           <Text style={styles.userPhone}>{item.phoneNumber}</Text>
-          {item.email && <Text style={styles.userEmail}>{item.email}</Text>}
+
         </View>
         <View style={styles.userTypeTag}>
           <Text style={[
@@ -381,10 +381,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#6B7280',
   },
-  userEmail: {
-    fontSize: 12,
-    color: '#9CA3AF',
-  },
+
   userTypeTag: {
     paddingHorizontal: 10,
     paddingVertical: 4,

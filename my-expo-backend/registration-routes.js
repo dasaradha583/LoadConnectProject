@@ -11,20 +11,18 @@ function createRegistrationRoutes(models, JWT_SECRET, redisClient) {
   const { User, Driver, Vendor, AdminNotification } = models;
 
   // Helper function to generate tokens
-  const generateTokens = async (userId, userType) => {
+    const generateTokens = async (userId, user_type) => {
     const accessToken = jwt.sign(
-      { userId, userType },
+      { userId, user_type },
       JWT_SECRET,
       { expiresIn: '24h' }
     );
 
     const refreshToken = jwt.sign(
-      { userId, userType },
+      { userId, user_type },
       JWT_SECRET,
       { expiresIn: '7d' }
-    );
-
-    // Store in Redis
+    );    // Store in Redis
     await redisClient.set(`access_token:${userId}`, accessToken, {
       EX: 24 * 60 * 60
     });
@@ -38,9 +36,9 @@ function createRegistrationRoutes(models, JWT_SECRET, redisClient) {
   // ===================== DRIVER REGISTRATION =====================
   router.post('/auth/register/driver', async (req, res) => {
     try {
-      const { phone, otp, name, licenseNumber, vehicleType, vehicleCapacity, vehicleNumber } = req.body;
+      const { phone, otp, name, license_number, vehicle_type, vehicle_capacity, vehicle_number } = req.body;
       
-      if (!phone || !otp || !name || !licenseNumber || !vehicleType || !vehicleCapacity || !vehicleNumber) {
+      if (!phone || !otp || !name || !license_number || !vehicle_type || !vehicle_capacity || !vehicle_number) {
         return res.status(400).json({
           success: false,
           message: 'All fields are required for driver registration'
@@ -70,21 +68,20 @@ function createRegistrationRoutes(models, JWT_SECRET, redisClient) {
         phone,
         username: phone,
         name,
-        userType: 'driver',
-        phoneVerified: true,
-        approvalStatus: 'pending',
-        isActive: true,
+        user_type: 'driver',
+        verified: true,
+        is_active: true,
         lastActiveAt: new Date()
       });
 
       // Create driver profile
       const driver = await Driver.create({
         userId: user.id,
-        licenseNumber,
-        vehicleType,
-        vehicleCapacity: parseFloat(vehicleCapacity),
-        vehicleNumber,
-        isAvailable: true,
+        license_number,
+        vehicle_type,
+        vehicle_capacity: parseFloat(vehicle_capacity),
+        vehicle_number,
+        is_available: true,
         rating: 5.0,
         totalTrips: 0,
         completedTrips: 0,
@@ -122,14 +119,14 @@ function createRegistrationRoutes(models, JWT_SECRET, redisClient) {
             phone: user.phone,
             username: user.username,
             name: user.name,
-            phoneVerified: user.phoneVerified,
+            verified: user.is_verified,
             approvalStatus: user.approvalStatus
           },
           driver: {
-            licenseNumber: driver.licenseNumber,
-            vehicleType: driver.vehicleType,
-            vehicleCapacity: driver.vehicleCapacity,
-            vehicleNumber: driver.vehicleNumber,
+            license_number: driver.license_number,
+            vehicle_type: driver.vehicle_type,
+            vehicle_capacity: driver.vehicle_capacity,
+            vehicle_number: driver.vehicle_number,
             rating: driver.rating
           },
           tokens
@@ -150,9 +147,9 @@ function createRegistrationRoutes(models, JWT_SECRET, redisClient) {
   // ===================== VENDOR REGISTRATION =====================
   router.post('/auth/register/vendor', async (req, res) => {
     try {
-      const { phone, otp, name, businessName, gstNumber } = req.body;
+      const { phone, otp, name, business_name, gst_number } = req.body;
       
-      if (!phone || !otp || !name || !businessName) {
+      if (!phone || !otp || !name || !business_name) {
         return res.status(400).json({
           success: false,
           message: 'Phone, OTP, name, and business name are required'
@@ -182,18 +179,17 @@ function createRegistrationRoutes(models, JWT_SECRET, redisClient) {
         phone,
         username: phone,
         name,
-        userType: 'vendor',
-        phoneVerified: true,
-        approvalStatus: 'pending',
-        isActive: true,
+        user_type: 'vendor',
+        verified: true,
+        is_active: true,
         lastActiveAt: new Date()
       });
 
       // Create vendor profile (WITHOUT business_id)
       const vendor = await Vendor.create({
         userId: user.id,
-        businessName,
-        gstNumber: gstNumber || null,
+        business_name,
+        gst_number: gst_number || null,
         rating: 5.0,
         totalOrders: 0,
         completedOrders: 0,
@@ -229,12 +225,12 @@ function createRegistrationRoutes(models, JWT_SECRET, redisClient) {
             phone: user.phone,
             username: user.username,
             name: user.name,
-            phoneVerified: user.phoneVerified,
+            verified: user.is_verified,
             approvalStatus: user.approvalStatus
           },
           vendor: {
-            businessName: vendor.businessName,
-            gstNumber: vendor.gstNumber,
+            business_name: vendor.business_name,
+            gst_number: vendor.gst_number,
             rating: vendor.rating
           },
           tokens

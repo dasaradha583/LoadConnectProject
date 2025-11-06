@@ -122,10 +122,7 @@ export default function ProfileScreen() {
           text: 'SMS Notifications', 
           onPress: () => Alert.alert('SMS Notifications', 'SMS notifications are enabled for critical updates like load assignments and payment confirmations.')
         },
-        {
-          text: 'Email Updates',
-          onPress: () => Alert.alert('Email Updates', 'Weekly email summaries of your earnings and performance are enabled.')
-        },
+        
         { text: 'Cancel', style: 'cancel' }
       ]
     );

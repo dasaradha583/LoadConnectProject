@@ -208,7 +208,7 @@ function createAdminRoutes(models, JWT_SECRET, redisClient) {
             id: user.id,
             username: user.username,
             name: user.name,
-            email: user.email,
+
             userType: user.userType,
             adminLevel: user.adminProfile.adminLevel,
             department: user.adminProfile.department,
@@ -451,7 +451,7 @@ function createAdminRoutes(models, JWT_SECRET, redisClient) {
           approvedBy: req.admin.id,
           approvedAt: new Date(),
           isVerified: true,
-          phoneVerified: true
+          is_verified: true
         });
 
         // Create approval log
@@ -994,7 +994,7 @@ function createAdminRoutes(models, JWT_SECRET, redisClient) {
         include: [{ 
           model: User, 
           as: 'user',
-          attributes: ['id', 'name', 'phone', 'email'] 
+          attributes: ['id', 'name', 'phone']
         }]
       });
 
@@ -1127,7 +1127,7 @@ function createAdminRoutes(models, JWT_SECRET, redisClient) {
         include: [{ 
           model: User, 
           as: 'user',
-          attributes: ['id', 'name', 'phone', 'email'] 
+          attributes: ['id', 'name', 'phone']
         }]
       });
 
