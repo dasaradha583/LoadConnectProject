@@ -108,7 +108,6 @@ export default function HomeScreen() {
               const authService = AuthService.getInstance();
               
               // Stop location tracking first
-              const LocationService = (await import('@/services/location')).default;
               const locationService = LocationService.getInstance();
               locationService.stopLocationTracking();
               console.log('Location tracking stopped');

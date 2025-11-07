@@ -1,4 +1,5 @@
 import { router } from 'expo-router';
+import AuthService from '@/services/auth';
 import React, { useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
@@ -32,11 +33,11 @@ export default function SignInScreen() {
     setLoading(true);
     
     try {
-      // Import AuthService dynamically to avoid circular imports
-      const AuthService = (await import('@/services/auth')).default.getInstance();
+      // Get AuthService instance
+      const authService = AuthService.getInstance();
       
       // Send OTP and check if user exists
-      const result = await AuthService.sendOTP(phoneNumber);
+      const result = await authService.sendOTP(phoneNumber);
       
       // Check if user exists for sign-in
       if (!result.userExists) {

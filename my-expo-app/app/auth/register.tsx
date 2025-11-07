@@ -1,4 +1,5 @@
 import { UserType } from '@/types/user';
+import AuthService from '@/services/auth';
 import { router } from 'expo-router';
 import React, { useState } from 'react';
 import {
@@ -59,11 +60,11 @@ export default function RegisterScreen() {
     setLoading(true);
     
     try {
-      // Import AuthService dynamically to avoid circular imports
-      const AuthService = (await import('@/services/auth')).default.getInstance();
+      // Get AuthService instance
+      const authService = AuthService.getInstance();
       
       // Send OTP and check if user already exists
-      const result = await AuthService.sendOTP(phoneNumber);
+      const result = await authService.sendOTP(phoneNumber);
       
       // Check if user already exists for registration
       if (result.userExists) {

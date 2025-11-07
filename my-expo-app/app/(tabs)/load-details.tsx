@@ -14,6 +14,8 @@ import {
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import AuthService from '@/services/auth';
+import LoadService from '@/services/load';
+import { api } from '@/services/api';
 import LiveTrackingQuickActions from '@/components/LiveTracking/LiveTrackingQuickActions';
 import DriverTrackingPanel from '@/components/LiveTracking/DriverTrackingPanel';
 import VendorTrackingDashboard from '@/components/LiveTracking/VendorTrackingDashboard';
@@ -66,7 +68,6 @@ export default function LoadDetailsScreen() {
   const testNetworkConnectivity = useCallback(async (): Promise<boolean> => {
     try {
       console.log('🌐 Testing network connectivity...');
-      const { api } = await import('@/services/api');
       const response = await api.get('/health');
       
       if (response.success) {
@@ -94,7 +95,6 @@ export default function LoadDetailsScreen() {
       }
       
       // Use the API service which has retry logic
-      const { api } = await import('@/services/api');
       const response = await api.get(`/loads/${id}/details`);
       
       if (response.success && response.data) {
@@ -243,7 +243,6 @@ export default function LoadDetailsScreen() {
                 console.warn('Could not get location:', locationError);
               }
 
-              const { api } = await import('@/services/api');
               const response = await api.post(`/loads/${id}/driver-status-update`, {
                 status: 'picked_up',
                 location: currentLocation
@@ -310,7 +309,6 @@ export default function LoadDetailsScreen() {
                 console.warn('Could not get location:', locationError);
               }
 
-              const { api } = await import('@/services/api');
               const response = await api.post(`/loads/${id}/driver-status-update`, {
                 status: 'delivered',
                 location: currentLocation
@@ -351,7 +349,6 @@ export default function LoadDetailsScreen() {
 
   const handleRating = async (selectedRating: number, review: string, ratingAspects: any) => {
     try {
-      const LoadService = (await import('@/services/load')).default;
       const loadService = LoadService.getInstance();
 
       if (user?.type === 'driver') {

@@ -9,6 +9,7 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { api } from '@/services/api';
 
 interface StatusNotification {
   id: string;
@@ -37,7 +38,6 @@ export default function StatusNotificationBanner({
     // Simulate real-time notifications (in production, this would be WebSocket or SSE)
     const checkForNotifications = async () => {
       try {
-        const { api } = await import('@/services/api');
         const response = await api.get(`/notifications/vendor/${vendorId}/latest`);
         
         if (response.success && response.data && Array.isArray(response.data) && response.data.length > 0) {
