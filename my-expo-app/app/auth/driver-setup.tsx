@@ -155,6 +155,10 @@ export default function DriverSetupScreen() {
         vehicleNumber: formData.vehicleNumber.toUpperCase(),
       };
 
+      console.log('🚗 Driver Setup - Form data:', formData);
+      console.log('🚗 Driver Setup - Additional data:', additionalData);
+      console.log('🚗 Driver Setup - Registration data:', registrationData);
+
       await authService.registerWithOTP(
         registrationData.phone,
         registrationData.otp,

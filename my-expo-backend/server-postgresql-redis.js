@@ -810,9 +810,20 @@ app.post('/auth/signin', async (req, res) => {
 
 app.post('/auth/register/driver', async (req, res) => {
   try {
+    console.log('📝 Driver Registration - Full Request body:', JSON.stringify(req.body, null, 2));
+    
     const { phone, otp, name, licenseNumber, vehicleType, vehicleCapacity, vehicleNumber } = req.body;
     
-    console.log('📝 Driver Registration - Request body:', { phone, name, licenseNumber, vehicleType, vehicleCapacity, vehicleNumber });
+    console.log('📝 Driver Registration - Extracted fields:', { 
+      phone, 
+      name, 
+      licenseNumber, 
+      vehicleType, 
+      vehicleCapacity, 
+      vehicleNumber,
+      hasLicenseNumber: !!licenseNumber,
+      hasVehicleType: !!vehicleType 
+    });
     
     if (!phone || !otp || !name || !licenseNumber || !vehicleType || !vehicleCapacity || !vehicleNumber) {
       return res.status(400).json({
@@ -853,11 +864,11 @@ app.post('/auth/register/driver', async (req, res) => {
     // Create Driver profile record (separate table)
     const driverProfile = await Driver.create({
       userId: driver.id,
-      license_number: licenseNumber,
-      vehicle_type: vehicleType,
+      licenseNumber: licenseNumber,
+      vehicleType: vehicleType,
       vehicleCapacity: parseFloat(vehicleCapacity),
       vehicleNumber: vehicleNumber,
-      is_available: true,
+      isAvailable: true,
       rating: 5.0,
       totalTrips: 0,
       completedTrips: 0,

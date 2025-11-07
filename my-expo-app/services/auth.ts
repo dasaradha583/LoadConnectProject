@@ -167,6 +167,8 @@ class AuthService {
   async registerWithOTP(phone: string, otp: string, userType: UserType, additionalData: any): Promise<User> {
     try {
       console.log('📝 Registration: Starting registration for', phone, 'as', userType);
+      console.log('📝 Registration: Additional data received:', additionalData);
+      
       const userData = {
         phone,
         otp,
@@ -174,6 +176,8 @@ class AuthService {
         type: userType,
         ...additionalData,
       };
+
+      console.log('📝 Registration: Final userData object:', userData);
 
       const response = await this.apiService.register(userData);
       console.log('📝 Registration: Backend response received');
