@@ -86,6 +86,46 @@ class GeocodingService {
       return [];
     }
   }
+
+  // Reverse geocoding: Convert coordinates to address
+  async getAddressFromCoordinates(lat: number, lng: number): Promise<string | null> {
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=16&addressdetails=1`,
+        {
+          headers: {
+            'User-Agent': 'LoadConnect-App/1.0',
+          },
+        }
+      );
+
+      const data = await response.json();
+      
+      if (data && data.display_name) {
+        return data.display_name;
+      }
+      
+      // If display_name not available, try to construct address from parts
+      if (data && data.address) {
+        const addr = data.address;
+        const parts = [
+          addr.road || addr.street,
+          addr.suburb || addr.neighbourhood,
+          addr.city || addr.town || addr.village,
+          addr.state,
+        ].filter(Boolean);
+        
+        if (parts.length > 0) {
+          return parts.join(', ');
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Reverse geocoding error:', error);
+      return null;
+    }
+  }
 }
 
 export default GeocodingService;

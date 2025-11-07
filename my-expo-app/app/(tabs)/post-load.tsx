@@ -1,5 +1,6 @@
 import AuthService from '@/services/auth';
 import LoadService from '@/services/load';
+import GeocodingService from '@/services/geocoding';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { router } from 'expo-router';
 import React, { useState, useRef } from 'react';
@@ -167,27 +168,59 @@ export default function PostLoadScreen() {
     setSelectedMapLocation({ lat: latitude, lng: longitude });
   };
 
-  const handleConfirmMapLocation = () => {
+    const handleMapLocationConfirm = async () => {
     if (!selectedMapLocation) {
-      Alert.alert('Error', 'Please tap on the map to select a location');
+      Alert.alert('Error', 'Please select a location on the map');
       return;
     }
     
-    const coords = {
-      lat: selectedMapLocation.lat,
-      lng: selectedMapLocation.lng,
-      address: `${selectedMapLocation.lat.toFixed(6)}, ${selectedMapLocation.lng.toFixed(6)}`
-    };
-    
-    if (locationModalType === 'pickup') {
-      setPickupLocation(coords);
-    } else {
-      setDropLocation(coords);
+    setLoading(true);
+    try {
+      // Reverse geocode to get address
+      const geocodingService = GeocodingService.getInstance();
+      const address = await geocodingService.getAddressFromCoordinates(
+        selectedMapLocation.lat,
+        selectedMapLocation.lng
+      );
+      
+      const coords = {
+        lat: selectedMapLocation.lat,
+        lng: selectedMapLocation.lng,
+        address: address || `${selectedMapLocation.lat.toFixed(6)}, ${selectedMapLocation.lng.toFixed(6)}`
+      };
+      
+      console.log(`📍 Location selected: ${coords.address} (${coords.lat}, ${coords.lng})`);
+      
+      if (locationModalType === 'pickup') {
+        setPickupLocation(coords);
+      } else {
+        setDropLocation(coords);
+      }
+      
+      setShowLocationModal(false);
+      setSelectedMapLocation(null);
+      Alert.alert('Success', `${locationModalType === 'pickup' ? 'Pickup' : 'Drop'} location selected`);
+    } catch (error) {
+      console.error('Error getting address:', error);
+      // Fallback to coordinates
+      const coords = {
+        lat: selectedMapLocation.lat,
+        lng: selectedMapLocation.lng,
+        address: `${selectedMapLocation.lat.toFixed(6)}, ${selectedMapLocation.lng.toFixed(6)}`
+      };
+      
+      if (locationModalType === 'pickup') {
+        setPickupLocation(coords);
+      } else {
+        setDropLocation(coords);
+      }
+      
+      setShowLocationModal(false);
+      setSelectedMapLocation(null);
+      Alert.alert('Success', `${locationModalType === 'pickup' ? 'Pickup' : 'Drop'} location selected`);
+    } finally {
+      setLoading(false);
     }
-    
-    setShowLocationModal(false);
-    setSelectedMapLocation(null);
-    Alert.alert('Success', `${locationModalType === 'pickup' ? 'Pickup' : 'Drop'} location selected`);
   };
 
   const handleUseCurrentLocationOnMap = async () => {
@@ -653,11 +686,11 @@ export default function PostLoadScreen() {
                   styles.mapConfirmButton,
                   !selectedMapLocation && styles.mapConfirmButtonDisabled
                 ]}
-                onPress={handleConfirmMapLocation}
-                disabled={!selectedMapLocation}
+                onPress={handleMapLocationConfirm}
+                disabled={!selectedMapLocation || loading}
               >
                 <Text style={styles.mapConfirmButtonText}>
-                  Confirm Location
+                  {loading ? 'Getting address...' : 'Confirm Location'}
                 </Text>
               </TouchableOpacity>
             </View>

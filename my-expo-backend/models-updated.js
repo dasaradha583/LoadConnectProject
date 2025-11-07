@@ -76,7 +76,7 @@ function defineModels(sequelize) {
     verified: {
       type: DataTypes.BOOLEAN,
       defaultValue: false,
-      field: 'verified'
+      field: 'is_verified'
     },
 
     approvedBy: {

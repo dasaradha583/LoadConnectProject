@@ -36,9 +36,31 @@ function createRegistrationRoutes(models, JWT_SECRET, redisClient) {
   // ===================== DRIVER REGISTRATION =====================
   router.post('/auth/register/driver', async (req, res) => {
     try {
-      const { phone, otp, name, license_number, vehicle_type, vehicle_capacity, vehicle_number } = req.body;
+      console.log('📝 Driver Registration - Request body:', JSON.stringify(req.body, null, 2));
       
-      if (!phone || !otp || !name || !license_number || !vehicle_type || !vehicle_capacity || !vehicle_number) {
+      // Support both camelCase (from frontend) and snake_case field names
+      const { 
+        phone, 
+        otp, 
+        name,
+        license_number, licenseNumber,
+        vehicle_type, vehicleType,
+        vehicle_capacity, vehicleCapacity,
+        vehicle_number, vehicleNumber
+      } = req.body;
+      
+      // Use whichever format is provided
+      const licenseNum = license_number || licenseNumber;
+      const vehicleTypeValue = vehicle_type || vehicleType;
+      const vehicleCapacityValue = vehicle_capacity || vehicleCapacity;
+      const vehicleNum = vehicle_number || vehicleNumber;
+      
+      console.log('📝 Extracted values:', {
+        phone, otp, name,
+        licenseNum, vehicleTypeValue, vehicleCapacityValue, vehicleNum
+      });
+      
+      if (!phone || !otp || !name || !licenseNum || !vehicleTypeValue || !vehicleCapacityValue || !vehicleNum) {
         return res.status(400).json({
           success: false,
           message: 'All fields are required for driver registration'
@@ -68,19 +90,19 @@ function createRegistrationRoutes(models, JWT_SECRET, redisClient) {
         phone,
         username: phone,
         name,
-        user_type: 'driver',
+        userType: 'driver',
         verified: true,
-        is_active: true,
+        isActive: true,
         lastActiveAt: new Date()
       });
 
       // Create driver profile
       const driver = await Driver.create({
         userId: user.id,
-        license_number,
-        vehicle_type,
-        vehicle_capacity: parseFloat(vehicle_capacity),
-        vehicle_number,
+        license_number: licenseNum,
+        vehicle_type: vehicleTypeValue,
+        vehicleCapacity: parseFloat(vehicleCapacityValue),
+        vehicleNumber: vehicleNum,
         is_available: true,
         rating: 5.0,
         totalTrips: 0,
@@ -119,14 +141,14 @@ function createRegistrationRoutes(models, JWT_SECRET, redisClient) {
             phone: user.phone,
             username: user.username,
             name: user.name,
-            verified: user.is_verified,
-            approvalStatus: user.approvalStatus
+            verified: user.verified,
+            isActive: user.isActive
           },
           driver: {
             license_number: driver.license_number,
             vehicle_type: driver.vehicle_type,
             vehicle_capacity: driver.vehicle_capacity,
-            vehicle_number: driver.vehicle_number,
+            vehicle_number: driver.vehicleNumber,
             rating: driver.rating
           },
           tokens
@@ -147,9 +169,20 @@ function createRegistrationRoutes(models, JWT_SECRET, redisClient) {
   // ===================== VENDOR REGISTRATION =====================
   router.post('/auth/register/vendor', async (req, res) => {
     try {
-      const { phone, otp, name, business_name, gst_number } = req.body;
+      // Support both camelCase (from frontend) and snake_case field names
+      const { 
+        phone, 
+        otp, 
+        name, 
+        business_name, businessName,
+        gst_number, gstNumber
+      } = req.body;
       
-      if (!phone || !otp || !name || !business_name) {
+      // Use whichever format is provided
+      const businessNameValue = business_name || businessName;
+      const gstNumberValue = gst_number || gstNumber;
+      
+      if (!phone || !otp || !name || !businessNameValue) {
         return res.status(400).json({
           success: false,
           message: 'Phone, OTP, name, and business name are required'
@@ -179,17 +212,17 @@ function createRegistrationRoutes(models, JWT_SECRET, redisClient) {
         phone,
         username: phone,
         name,
-        user_type: 'vendor',
+        userType: 'vendor',
         verified: true,
-        is_active: true,
+        isActive: true,
         lastActiveAt: new Date()
       });
 
       // Create vendor profile (WITHOUT business_id)
       const vendor = await Vendor.create({
         userId: user.id,
-        business_name,
-        gst_number: gst_number || null,
+        business_name: businessNameValue,
+        gst_number: gstNumberValue || null,
         rating: 5.0,
         totalOrders: 0,
         completedOrders: 0,
@@ -225,8 +258,8 @@ function createRegistrationRoutes(models, JWT_SECRET, redisClient) {
             phone: user.phone,
             username: user.username,
             name: user.name,
-            verified: user.is_verified,
-            approvalStatus: user.approvalStatus
+            verified: user.verified,
+            isActive: user.isActive
           },
           vendor: {
             business_name: vendor.business_name,

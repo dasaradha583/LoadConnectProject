@@ -61,22 +61,7 @@ export default function LoadDetailsScreen() {
   // Payment states
   const [showPaymentModal, setShowPaymentModal] = useState(false);
 
-  useEffect(() => {
-    // Check if load ID is provided (handle both undefined and string "undefined")
-    if (!id || id === 'undefined' || id === '' || id === 'null') {
-      console.log('⚠️ No valid load ID provided, showing empty state');
-      setLoading(false);
-      Alert.alert(
-        'Invalid Load',
-        'No load ID provided. Please select a valid load.',
-        [{ text: 'Go Back', onPress: () => router.back() }]
-      );
-      return;
-    }
-    
-    initializeScreen();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  // Removed - consolidated into the useEffect below
 
   const testNetworkConnectivity = useCallback(async (): Promise<boolean> => {
     try {
@@ -185,8 +170,17 @@ export default function LoadDetailsScreen() {
   }, [fetchLoadDetails, testNetworkConnectivity]);
 
   useEffect(() => {
+    // Check if load ID is provided (handle both undefined and string "undefined")
+    if (!id || id === 'undefined' || id === '' || id === 'null') {
+      console.log('⚠️ No valid load ID provided, showing empty state');
+      setLoading(false);
+      // Don't initialize - just show empty state UI
+      return;
+    }
+    
+    // Only initialize if we have a valid load ID
     initializeScreen();
-  }, [initializeScreen]);
+  }, [initializeScreen, id]);
 
   // Initialize live tracking state
   useEffect(() => {

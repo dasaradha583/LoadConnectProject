@@ -890,15 +890,20 @@ app.post('/auth/register/driver', async (req, res) => {
 
     const driverProfile = await Driver.create({
       userId: driver.id,
-      licenseNumber,
-      vehicleType,
+      license_number: licenseNumber,
+      vehicle_type: vehicleType,
       vehicleCapacity: parseFloat(vehicleCapacity),
-      vehicleNumber,
-      isAvailable: true,
+      vehicleNumber: vehicleNumber,
+      is_available: true,
       rating: 5.0,
       totalTrips: 0,
       completedTrips: 0,
-      totalEarnings: 0.0
+      cancelledTrips: 0,
+      totalEarnings: 0.0,
+      onTimePercentage: 100.00,
+      licenseVerificationStatus: 'pending',
+      vehicleVerificationStatus: 'pending',
+      backgroundCheckStatus: 'pending'
     });
 
 
@@ -937,7 +942,13 @@ app.post('/auth/register/driver', async (req, res) => {
 
 app.post('/auth/register/vendor', async (req, res) => {
   try {
+    console.log('📝 Vendor Registration - Request body:', JSON.stringify(req.body, null, 2));
+    
     const { phone, otp, name, businessName, gstNumber } = req.body;
+
+    console.log('📝 Extracted vendor values:', {
+      phone, otp, name, businessName, gstNumber
+    });
 
     if (!phone || !otp || !name || !businessName) {
       return res.status(400).json({
@@ -979,8 +990,8 @@ app.post('/auth/register/vendor', async (req, res) => {
 
     const vendor = await Vendor.create({
       userId: user.id,
-      businessName,
-      gstNumber: gstNumber || null,
+      business_name: businessName,
+      gst_number: gstNumber || null,
       rating: 5.00,
       totalOrders: 0
     });
@@ -1081,24 +1092,27 @@ app.put('/auth/profile/driver', authenticateToken, async (req, res) => {
     }
 
 
-    const driverProfileData = {
-      userId: driver.id,
-      isAvailable: typeof isAvailable === 'boolean' ? isAvailable : driver.isAvailable,
-      rating: driver.rating || 5.0,
-      totalTrips: driver.totalTrips || 0,
-      completedTrips: driver.completedTrips || 0,
-      totalEarnings: driver.totalEarnings || 0.0
-    };
+    // Find and update the driver profile
+    const driverProfile = await Driver.findOne({ where: { userId: driver.id } });
     
-    if (licenseNumber) driverProfileData.licenseNumber = licenseNumber;
-    if (vehicleType) driverProfileData.vehicleType = vehicleType;
-    if (vehicleCapacity) driverProfileData.vehicleCapacity = parseFloat(vehicleCapacity);
-    if (vehicleNumber) driverProfileData.vehicleNumber = vehicleNumber.toUpperCase();
-
-
-    await Driver.upsert(driverProfileData);
+    if (driverProfile) {
+      // Update existing driver profile
+      const driverUpdateData = {};
+      if (licenseNumber) driverUpdateData.license_number = licenseNumber;
+      if (vehicleType) driverUpdateData.vehicle_type = vehicleType;
+      if (vehicleCapacity) driverUpdateData.vehicleCapacity = parseFloat(vehicleCapacity);
+      if (vehicleNumber) driverUpdateData.vehicleNumber = vehicleNumber.toUpperCase();
+      if (typeof isAvailable === 'boolean') driverUpdateData.is_available = isAvailable;
+      
+      if (Object.keys(driverUpdateData).length > 0) {
+        await driverProfile.update(driverUpdateData);
+      }
+    }
 
     console.log(`✅ Driver profile updated for user ${userId}`);
+
+    // Reload the driver profile to get updated data
+    const updatedDriverProfile = await Driver.findOne({ where: { userId: driver.id } });
 
     res.json({
       success: true,
@@ -1110,19 +1124,19 @@ app.put('/auth/profile/driver', authenticateToken, async (req, res) => {
           username: driver.username,
           name: driver.name,
           verified: driver.verified,
-          isAvailable: driver.isAvailable
+          isAvailable: updatedDriverProfile ? updatedDriverProfile.is_available : driver.isAvailable
         },
-        driver: {
-          licenseNumber: driver.licenseNumber,
-          vehicleType: driver.vehicleType,
-          vehicleCapacity: driver.vehicleCapacity,
-          vehicleNumber: driver.vehicleNumber,
-          rating: driver.rating,
-          totalTrips: driver.totalTrips,
-          completedTrips: driver.completedTrips,
-          totalEarnings: driver.totalEarnings,
-          isAvailable: driver.isAvailable
-        }
+        driver: updatedDriverProfile ? {
+          licenseNumber: updatedDriverProfile.license_number,
+          vehicleType: updatedDriverProfile.vehicle_type,
+          vehicleCapacity: updatedDriverProfile.vehicleCapacity,
+          vehicleNumber: updatedDriverProfile.vehicleNumber,
+          rating: updatedDriverProfile.rating,
+          totalTrips: updatedDriverProfile.totalTrips,
+          completedTrips: updatedDriverProfile.completedTrips,
+          totalEarnings: updatedDriverProfile.totalEarnings,
+          isAvailable: updatedDriverProfile.is_available
+        } : null
       },
       message: 'Driver profile updated successfully'
     });
@@ -1250,17 +1264,18 @@ app.get('/auth/profile', authenticateToken, async (req, res) => {
       }
 
       console.log(`✅ Driver profile found for ${user.name}`);
+      console.log('📋 Driver data:', JSON.stringify(driver.toJSON(), null, 2));
       
       res.json({
         success: true,
         data: {
           user: userData,
           driver: {
-            licenseNumber: driver.licenseNumber,
-            vehicleType: driver.vehicleType,
+            licenseNumber: driver.license_number,
+            vehicleType: driver.vehicle_type,
             vehicleCapacity: driver.vehicleCapacity,
             vehicleNumber: driver.vehicleNumber,
-            isAvailable: driver.isAvailable,
+            isAvailable: driver.is_available,
             rating: driver.rating,
             totalTrips: driver.totalTrips,
             completedTrips: driver.completedTrips,
@@ -1282,14 +1297,15 @@ app.get('/auth/profile', authenticateToken, async (req, res) => {
       }
 
       console.log(`✅ Vendor profile found for ${user.name}`);
+      console.log('📋 Vendor data:', JSON.stringify(vendor.toJSON(), null, 2));
 
       res.json({
         success: true,
         data: {
           user: userData,
           vendor: {
-            businessName: vendor.businessName,
-            gstNumber: vendor.gstNumber,
+            businessName: vendor.business_name,
+            gstNumber: vendor.gst_number,
             rating: vendor.rating,
             totalOrders: vendor.totalOrders
           }
@@ -1325,6 +1341,7 @@ app.get('/auth/profile', authenticateToken, async (req, res) => {
 
   } catch (error) {
     console.error('Profile retrieval error:', error);
+    console.error('Error stack:', error.stack);
     res.status(500).json({
       success: false,
       message: 'Internal server error'
@@ -2090,7 +2107,7 @@ app.post('/loads/:loadId/accept', authenticateToken, async (req, res) => {
         include: [{
           model: Vendor,
           as: 'vendorProfile',
-          attributes: ['businessName', 'gstNumber', 'rating', 'totalOrders']
+          attributes: ['business_name', 'gst_number', 'rating', 'totalOrders']
         }]
       }]
     });
@@ -2101,7 +2118,7 @@ app.post('/loads/:loadId/accept', authenticateToken, async (req, res) => {
       include: [{
         model: Driver,
         as: 'driverProfile',
-        attributes: ['vehicleType', 'vehicleNumber', 'licenseNumber', 'rating', 'totalTrips']
+        attributes: ['vehicle_type', 'vehicle_number', 'license_number', 'rating', 'totalTrips']
       }]
     });
     
@@ -2181,8 +2198,8 @@ app.post('/loads/:loadId/accept', authenticateToken, async (req, res) => {
           id: completeLoad.vendor.id,
           name: completeLoad.vendor.name,
           phone: completeLoad.vendor.phone,
-          businessName: completeLoad.vendor.vendorProfile?.businessName,
-          gstNumber: completeLoad.vendor.vendorProfile?.gstNumber,
+          businessName: completeLoad.vendor.vendorProfile?.business_name,
+          gstNumber: completeLoad.vendor.vendorProfile?.gst_number,
           rating: completeLoad.vendor.vendorProfile?.rating
         },
         driver: driver,
@@ -2886,16 +2903,16 @@ app.get('/location/drivers/count', authenticateToken, async (req, res) => {
     // Get all available drivers
     const availableDrivers = await User.findAll({
       where: {
-        userType: UserType.DRIVER,
-        approvalStatus: 'approved'
+        user_type: UserType.DRIVER,
+        is_active: true
       },
       include: [{
         model: Driver,
         as: 'driverProfile',
         where: {
-          isAvailable: true
+          is_available: true
         },
-        attributes: ['vehicleType', 'rating', 'currentLocationLat', 'currentLocationLng'],
+        attributes: ['vehicle_type', 'rating', 'current_location_lat', 'current_location_lng'],
         required: true
       }]
     });
@@ -2903,15 +2920,15 @@ app.get('/location/drivers/count', authenticateToken, async (req, res) => {
     // Calculate distances and count drivers within different radii
     const driversWithDistance = availableDrivers.map(driver => {
       const driverProfile = driver.driverProfile;
-      if (!driverProfile || !driverProfile.currentLocationLat || !driverProfile.currentLocationLng) {
+      if (!driverProfile || !driverProfile.current_location_lat || !driverProfile.current_location_lng) {
         return null;
       }
 
       const distance = calculateDistance(
         latitude,
         longitude,
-        driverProfile.currentLocationLat,
-        driverProfile.currentLocationLng
+        driverProfile.current_location_lat,
+        driverProfile.current_location_lng
       );
 
       return {
@@ -2984,6 +3001,17 @@ app.get('/loads/:loadId/details', authenticateToken, async (req, res) => {
     const userId = req.user.userId;
     const userType = req.userEntity.userType;
 
+    // Validate loadId
+    if (!loadId || loadId === 'undefined' || loadId === 'null') {
+      console.error('❌ Invalid loadId received:', loadId);
+      return res.status(400).json({ 
+        error: 'Invalid load ID provided',
+        receivedId: loadId 
+      });
+    }
+
+    console.log('🔍 Load Details Request:', { loadId, userId, userType });
+
     // Find the load with all related information
     const load = await Load.findByPk(loadId, {
       include: [
@@ -2994,7 +3022,7 @@ app.get('/loads/:loadId/details', authenticateToken, async (req, res) => {
           include: [{
             model: Vendor,
             as: 'vendorProfile',
-            attributes: ['businessName', 'gstNumber', 'rating', 'totalOrders']
+            attributes: ['business_name', 'gst_number', 'rating', 'totalOrders']
           }]
         },
         {
@@ -3004,7 +3032,7 @@ app.get('/loads/:loadId/details', authenticateToken, async (req, res) => {
           include: [{
             model: Driver,
             as: 'driverProfile',
-            attributes: ['vehicleType', 'vehicleNumber', 'licenseNumber', 'rating', 'totalTrips']
+            attributes: ['vehicle_type', 'vehicle_number', 'license_number', 'rating', 'totalTrips']
           }]
         }
       ]
@@ -3074,8 +3102,8 @@ app.get('/loads/:loadId/details', authenticateToken, async (req, res) => {
         id: load.vendor.id,
         name: load.vendor.name,
         phone: load.vendor.phone,
-        businessName: load.vendor.vendorProfile?.businessName,
-        gstNumber: load.vendor.vendorProfile?.gstNumber,
+        businessName: load.vendor.vendorProfile?.business_name,
+        gstNumber: load.vendor.vendorProfile?.gst_number,
         rating: load.vendor.vendorProfile?.rating,
         totalOrders: load.vendor.vendorProfile?.totalOrders
       } : null;
@@ -3107,9 +3135,9 @@ app.get('/loads/:loadId/details', authenticateToken, async (req, res) => {
         id: load.driver.id,
         name: load.driver.name,
         phone: load.driver.phone,
-        vehicleType: load.driver.driverProfile?.vehicleType,
-        vehicleNumber: load.driver.driverProfile?.vehicleNumber,
-        licenseNumber: load.driver.driverProfile?.licenseNumber,
+        vehicleType: load.driver.driverProfile?.vehicle_type,
+        vehicleNumber: load.driver.driverProfile?.vehicle_number,
+        licenseNumber: load.driver.driverProfile?.license_number,
         rating: load.driver.driverProfile?.rating,
         totalTrips: load.driver.driverProfile?.totalTrips
       } : null;

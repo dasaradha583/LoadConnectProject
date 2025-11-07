@@ -84,7 +84,7 @@ export const getDeliverySteps = (currentStatus: string): StatusProgressStep[] =>
   // Map status variations to standard status order
   const statusMapping: { [key: string]: string } = {
     'posted': 'posted',
-    'accepted': 'assigned',  // Map accepted to assigned for progress display
+    'accepted': 'assigned',  // Map accepted to assigned - driver already accepted, so this step is complete
     'assigned': 'assigned',
     'picked_up': 'picked_up',
     'in_transit': 'in_transit',
@@ -98,8 +98,10 @@ export const getDeliverySteps = (currentStatus: string): StatusProgressStep[] =>
 
   return allSteps.map((step, index) => ({
     ...step,
-    completed: index < currentIndex,
-    active: index === currentIndex,
+    // Current step and all previous steps are completed
+    completed: index <= currentIndex,
+    // Next step after current is "in progress" (active)
+    active: index === currentIndex + 1,
   }));
 };
 
