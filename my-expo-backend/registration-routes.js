@@ -221,8 +221,8 @@ function createRegistrationRoutes(models, JWT_SECRET, redisClient) {
       // Create vendor profile (WITHOUT business_id)
       const vendor = await Vendor.create({
         userId: user.id,
-        business_name: businessNameValue,
-        gst_number: gstNumberValue || null,
+        businessName: businessNameValue,
+        gstNumber: gstNumberValue || null,
         rating: 5.0,
         totalOrders: 0,
         completedOrders: 0,
@@ -262,8 +262,8 @@ function createRegistrationRoutes(models, JWT_SECRET, redisClient) {
             isActive: user.isActive
           },
           vendor: {
-            business_name: vendor.business_name,
-            gst_number: vendor.gst_number,
+            businessName: vendor.businessName,
+            gstNumber: vendor.gstNumber,
             rating: vendor.rating
           },
           tokens

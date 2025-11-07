@@ -250,10 +250,11 @@ function defineModels(sequelize) {
       unique: true,
       field: 'user_id'
     },
-    license_number: {
+    licenseNumber: {
       type: DataTypes.STRING(50),
       allowNull: false,
-      unique: true
+      unique: true,
+      field: 'license_number'
     },
     licenseExpiryDate: {
       type: DataTypes.DATEONLY,
@@ -280,9 +281,10 @@ function defineModels(sequelize) {
       allowNull: true,
       field: 'license_rejection_reason'
     },
-    vehicle_type: {
+    vehicleType: {
       type: DataTypes.STRING(50),
-      allowNull: false
+      allowNull: false,
+      field: 'vehicle_type'
     },
     vehicleCapacity: {
       type: DataTypes.DECIMAL(8, 2),
@@ -350,9 +352,10 @@ function defineModels(sequelize) {
       allowNull: true,
       field: 'insurance_provider'
     },
-    is_available: {
+    isAvailable: {
       type: DataTypes.BOOLEAN,
-      defaultValue: true
+      defaultValue: true,
+      field: 'is_available'
     },
     currentLocationLat: {
       type: DataTypes.DECIMAL(10, 8),
@@ -437,9 +440,10 @@ function defineModels(sequelize) {
       unique: true,
       field: 'user_id'
     },
-    business_name: {
+    businessName: {
       type: DataTypes.STRING(100),
-      allowNull: false
+      allowNull: false,
+      field: 'business_name'
     },
     businessType: {
       type: DataTypes.STRING(50),
@@ -455,10 +459,11 @@ function defineModels(sequelize) {
       type: DataTypes.STRING(100),
       allowNull: true
     },
-    gst_number: {
+    gstNumber: {
       type: DataTypes.STRING(20),
       unique: true,
-      allowNull: true
+      allowNull: true,
+      field: 'gst_number'
     },
     gstVerified: {
       type: DataTypes.BOOLEAN,
