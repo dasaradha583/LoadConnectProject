@@ -15,13 +15,17 @@ interface RatingModalProps {
   onClose: () => void;
   onSubmit: (rating: number, review: string, ratingAspects: any) => Promise<void>;
   driverName?: string;
+  vendorName?: string;
+  userType?: 'driver' | 'vendor';
 }
 
 export default function RatingModal({ 
   visible, 
   onClose, 
   onSubmit, 
-  driverName 
+  driverName,
+  vendorName,
+  userType = 'vendor' // Default to vendor rating driver
 }: RatingModalProps) {
   const [rating, setRating] = useState(0);
   const [review, setReview] = useState('');
@@ -32,6 +36,10 @@ export default function RatingModal({
   const [behavior, setBehavior] = useState(0);
   const [vehicleCondition, setVehicleCondition] = useState(0);
   const [careOfGoods, setCareOfGoods] = useState(0);
+
+  // Determine who is being rated
+  const ratingTarget = userType === 'driver' ? 'Vendor' : 'Driver';
+  const targetName = userType === 'driver' ? vendorName : driverName;
 
   const handleSubmit = async () => {
     if (rating === 0) {
@@ -93,12 +101,12 @@ export default function RatingModal({
         <View style={styles.modalContent}>
           <ScrollView showsVerticalScrollIndicator={false}>
             {/* Header */}
-            <Text style={styles.modalTitle}>Rate Driver</Text>
-            {driverName && (
-              <Text style={styles.driverName}>{driverName}</Text>
+            <Text style={styles.modalTitle}>Rate {ratingTarget}</Text>
+            {targetName && (
+              <Text style={styles.driverName}>{targetName}</Text>
             )}
             <Text style={styles.subtitle}>
-              How was your experience with this driver?
+              How was your experience with this {ratingTarget.toLowerCase()}?
             </Text>
 
             {/* Overall Rating */}
@@ -115,25 +123,30 @@ export default function RatingModal({
             {/* Detailed Ratings */}
             <Text style={styles.detailedTitle}>Rate Specific Aspects (Optional)</Text>
 
-            <View style={styles.aspectSection}>
-              <Text style={styles.aspectLabel}>Punctuality</Text>
-              {renderStars(punctuality, setPunctuality, 32)}
-            </View>
+            {/* Show detailed ratings only when vendor is rating driver */}
+            {userType === 'vendor' && (
+              <>
+                <View style={styles.aspectSection}>
+                  <Text style={styles.aspectLabel}>Punctuality</Text>
+                  {renderStars(punctuality, setPunctuality, 32)}
+                </View>
 
-            <View style={styles.aspectSection}>
-              <Text style={styles.aspectLabel}>Behavior & Professionalism</Text>
-              {renderStars(behavior, setBehavior, 32)}
-            </View>
+                <View style={styles.aspectSection}>
+                  <Text style={styles.aspectLabel}>Behavior & Professionalism</Text>
+                  {renderStars(behavior, setBehavior, 32)}
+                </View>
 
-            <View style={styles.aspectSection}>
-              <Text style={styles.aspectLabel}>Vehicle Condition</Text>
-              {renderStars(vehicleCondition, setVehicleCondition, 32)}
-            </View>
+                <View style={styles.aspectSection}>
+                  <Text style={styles.aspectLabel}>Vehicle Condition</Text>
+                  {renderStars(vehicleCondition, setVehicleCondition, 32)}
+                </View>
 
-            <View style={styles.aspectSection}>
-              <Text style={styles.aspectLabel}>Care of Goods</Text>
-              {renderStars(careOfGoods, setCareOfGoods, 32)}
-            </View>
+                <View style={styles.aspectSection}>
+                  <Text style={styles.aspectLabel}>Care of Goods</Text>
+                  {renderStars(careOfGoods, setCareOfGoods, 32)}
+                </View>
+              </>
+            )}
 
             {/* Review Text */}
             <View style={styles.section}>

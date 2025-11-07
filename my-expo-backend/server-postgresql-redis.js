@@ -958,10 +958,11 @@ app.post('/auth/register/vendor', async (req, res) => {
     console.log('✅ Vendor user created:', user.id);
 
     // Create Vendor profile record (separate table)
+    // Note: Use camelCase property names, Sequelize will map to snake_case database columns
     const vendor = await Vendor.create({
       userId: user.id,
-      business_name: businessName,
-      gst_number: gstNumber || null,
+      businessName: businessName,
+      gstNumber: gstNumber || null,
       rating: 5.00,
       totalOrders: 0
     });
@@ -2002,7 +2003,7 @@ app.get('/loads/vendor/:vendorId', authenticateToken, async (req, res) => {
         { model: Location, as: 'pickupLocation' },
         { model: Location, as: 'dropLocation' }
       ],
-      order: [['createdAt', 'DESC']]
+      order: [['created_at', 'DESC']]
     });
 
     console.log(`📦 Found ${vendorLoads.length} loads for vendor ${vendorId}`);
@@ -2061,7 +2062,7 @@ app.get('/loads/driver/:driverId', authenticateToken, async (req, res) => {
         { model: Location, as: 'pickupLocation' },
         { model: Location, as: 'dropLocation' }
       ],
-      order: [['acceptedAt', 'DESC'], ['createdAt', 'DESC']]
+      order: [['accepted_at', 'DESC'], ['created_at', 'DESC']]
     });
 
     console.log(`🚛 Found ${driverLoads.length} loads for driver ${driverId}`);
@@ -2519,7 +2520,7 @@ app.get('/loads/:loadId/driver-location', authenticateToken, async (req, res) =>
       // Fall back to driver_locations table
       const driverLocation = await DriverLocation.findOne({
         where: { driverId: load.driverId, isActive: true },
-        order: [['createdAt', 'DESC']]
+        order: [['created_at', 'DESC']]
       });
       
       if (driverLocation) {
@@ -3383,7 +3384,7 @@ app.get('/loads/:loadId/details', authenticateToken, async (req, res) => {
         } else {
           const dbLocation = await DriverLocation.findOne({
             where: { driverId: load.driverId, isActive: true },
-            order: [['createdAt', 'DESC']]
+            order: [['created_at', 'DESC']]
           });
           if (dbLocation) {
             driverLocation = {
@@ -3463,11 +3464,23 @@ app.post('/loads/:loadId/rate-vendor', authenticateToken, async (req, res) => {
       });
     }
 
+    // Find the driver profile first
+    const driverProfile = await Driver.findOne({
+      where: { userId: req.user.userId }
+    });
+
+    if (!driverProfile) {
+      return res.status(404).json({
+        success: false,
+        message: 'Driver profile not found'
+      });
+    }
+
     // Find the load and verify driver is assigned
     const load = await Load.findOne({
       where: { 
         id: loadId, 
-        driverId: req.user.userId,
+        driverId: driverProfile.id, // Use driver profile ID, not user ID
         status: LoadStatus.DELIVERED // Can only rate after delivery
       }
     });
@@ -3479,30 +3492,43 @@ app.post('/loads/:loadId/rate-vendor', authenticateToken, async (req, res) => {
       });
     }
 
-    // Get vendor to update rating
-    const vendor = await User.findByPk(load.vendorId);
-    if (!vendor) {
+    // Get vendor user from the vendor profile ID
+    const vendorProfile = await Vendor.findByPk(load.vendorId, {
+      include: [{
+        model: User,
+        as: 'user'
+      }]
+    });
+    
+    if (!vendorProfile || !vendorProfile.user) {
       return res.status(404).json({
         success: false,
         message: 'Vendor not found'
       });
     }
 
-    // Calculate new average rating
-    const currentRating = parseFloat(vendor.rating) || 5.0;
-    const totalOrders = vendor.totalOrders || 0;
+    const vendor = vendorProfile.user;
+
+    // Calculate new average rating for vendor
+    const currentRating = parseFloat(vendorProfile.rating) || 5.0;
+    const totalOrders = vendorProfile.totalOrders || 0;
     const newTotalOrders = totalOrders + 1;
     const newRating = ((currentRating * totalOrders) + rating) / newTotalOrders;
 
-    // Update vendor rating
-    await vendor.update({
+    // Update vendor profile rating
+    await vendorProfile.update({
       rating: newRating,
       totalOrders: newTotalOrders
     });
 
+    // Also update user rating for consistency
+    await vendor.update({
+      rating: newRating
+    });
+
     // Store rating in Redis for analytics
     await redisClient.setEx(
-      `vendor_rating:${load.vendorId}:${loadId}`,
+      `vendor_rating:${vendorProfile.id}:${loadId}`,
       86400 * 30, // 30 days
       JSON.stringify({
         loadId,
@@ -3514,12 +3540,12 @@ app.post('/loads/:loadId/rate-vendor', authenticateToken, async (req, res) => {
       })
     );
 
-    console.log(`⭐ Driver ${req.user.userId} rated vendor ${load.vendorId} with ${rating} stars for load ${loadId}`);
+    console.log(`⭐ Driver ${req.user.userId} rated vendor ${vendorProfile.user.id} with ${rating} stars for load ${loadId}`);
 
     res.json({
       success: true,
       data: {
-        newRating: newRating.toFixed(2),
+        newRating: parseFloat(newRating.toFixed(2)),
         totalOrders: newTotalOrders
       },
       message: 'Vendor rated successfully'
@@ -3556,11 +3582,23 @@ app.post('/loads/:loadId/rate-driver', authenticateToken, async (req, res) => {
       });
     }
 
+    // Find the vendor profile first
+    const vendorProfile = await Vendor.findOne({
+      where: { userId: req.user.userId }
+    });
+
+    if (!vendorProfile) {
+      return res.status(404).json({
+        success: false,
+        message: 'Vendor profile not found'
+      });
+    }
+
     // Find the load and verify vendor owns it
     const load = await Load.findOne({
       where: { 
         id: loadId, 
-        vendorId: req.user.userId,
+        vendorId: vendorProfile.id, // Use vendor profile ID, not user ID
         status: LoadStatus.DELIVERED // Can only rate after delivery
       }
     });
@@ -3591,20 +3629,28 @@ app.post('/loads/:loadId/rate-driver', authenticateToken, async (req, res) => {
       });
     }
 
-    // Get driver to update rating
-    const driver = await User.findByPk(load.driverId);
-    if (!driver) {
+    // Get driver profile and user
+    const driverProfile = await Driver.findByPk(load.driverId, {
+      include: [{
+        model: User,
+        as: 'user'
+      }]
+    });
+    
+    if (!driverProfile || !driverProfile.user) {
       return res.status(404).json({
         success: false,
         message: 'Driver not found'
       });
     }
 
-    // Create the rating entry
+    const driver = driverProfile.user;
+
+    // Create the rating entry (vendorId and driverId are User IDs for Rating table)
     const newRating = await Rating.create({
       loadId: loadId,
-      vendorId: req.user.userId,
-      driverId: load.driverId,
+      vendorId: req.user.userId, // User ID
+      driverId: driver.id, // User ID (not driver profile ID)
       overallRating: rating,
       review: review || null,
       punctualityRating: ratingAspects?.punctuality || null,
@@ -3615,7 +3661,7 @@ app.post('/loads/:loadId/rate-driver', authenticateToken, async (req, res) => {
 
     // Calculate new average rating for the driver
     const allRatings = await Rating.findAll({
-      where: { driverId: load.driverId },
+      where: { driverId: driver.id }, // Use user ID
       attributes: ['overallRating']
     });
 
@@ -3628,30 +3674,20 @@ app.post('/loads/:loadId/rate-driver', authenticateToken, async (req, res) => {
       rating: newAverageRating.toFixed(2)
     });
 
-    // Also update Driver model if exists
-    const driverProfile = await Driver.findOne({
-      where: { userId: load.driverId }
+    // Update Driver profile
+    // Get the load budget to add to earnings
+    const loadBudget = parseFloat(load.budget.toString()) || 0;
+    const newTotalEarnings = parseFloat(driverProfile.totalEarnings.toString()) + loadBudget;
+    
+    await driverProfile.update({
+      rating: newAverageRating.toFixed(2),
+      totalTrips: driverProfile.totalTrips + 1,
+      completedTrips: driverProfile.completedTrips + 1,
+      totalEarnings: newTotalEarnings
     });
+    console.log(`💰 Driver's earnings updated: +₹${loadBudget}, total=₹${newTotalEarnings}`);
 
-    if (driverProfile) {
-      // Get the load budget to add to earnings
-      const loadBudget = parseFloat(load.budget.toString()) || 0;
-      const newTotalEarnings = parseFloat(driverProfile.totalEarnings.toString()) + loadBudget;
-      
-      await driverProfile.update({
-        rating: newAverageRating.toFixed(2),
-        totalTrips: driverProfile.totalTrips + 1,
-        completedTrips: driverProfile.completedTrips + 1,
-        totalEarnings: newTotalEarnings
-      });
-      console.log(`💰 Driver's earnings updated: +₹${loadBudget}, total=₹${newTotalEarnings}`);
-    }
-
-    // Update vendor's total_orders and completed_orders
-    const vendorProfile = await Vendor.findOne({
-      where: { userId: req.user.userId }
-    });
-
+    // Update vendor's total_orders and completed_orders (reuse vendorProfile from above)
     if (vendorProfile) {
       await vendorProfile.update({
         totalOrders: vendorProfile.totalOrders + 1,
@@ -3719,7 +3755,7 @@ app.get('/drivers/:driverId/ratings', authenticateToken, async (req, res) => {
           attributes: ['id', 'pickupAddress', 'dropAddress', 'deliveredAt']
         }
       ],
-      order: [['createdAt', 'DESC']]
+      order: [['created_at', 'DESC']]
     });
 
     // Calculate statistics
@@ -4556,7 +4592,7 @@ app.get('/drivers/:driverId/current-location', authenticateToken, async (req, re
     // Fallback to database
     const currentLocation = await DriverLocation.findOne({
       where: { driverId },
-      order: [['lastUpdated', 'DESC']]
+      order: [['created_at', 'DESC']]
     });
 
     if (!currentLocation) {

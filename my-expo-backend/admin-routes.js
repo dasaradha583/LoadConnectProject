@@ -302,7 +302,7 @@ function createAdminRoutes(models, JWT_SECRET, redisClient) {
         ],
         limit: parseInt(limit),
         offset: parseInt(offset),
-        order: [['createdAt', 'ASC']]
+        order: [['created_at', 'ASC']]
       });
 
       // Format response
@@ -918,7 +918,7 @@ function createAdminRoutes(models, JWT_SECRET, redisClient) {
         ],
         limit: parseInt(limit),
         offset: parseInt(offset),
-        order: [['createdAt', 'DESC']]
+        order: [['created_at', 'DESC']]
       });
 
       res.json({

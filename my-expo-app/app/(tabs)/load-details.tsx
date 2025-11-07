@@ -967,6 +967,8 @@ export default function LoadDetailsScreen() {
         onClose={() => setShowRatingModal(false)}
         onSubmit={handleRating}
         driverName={loadDetails?.driver?.name}
+        vendorName={loadDetails?.vendor?.businessName || loadDetails?.vendor?.name}
+        userType={user?.type as 'driver' | 'vendor'}
       />
 
       {/* Payment Modal */}

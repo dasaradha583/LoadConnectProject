@@ -120,6 +120,10 @@ export default function VendorSetupScreen() {
         gstNumber: formData.gstNumber.toUpperCase(),
       };
 
+      console.log('🏢 Vendor Setup - Form data:', formData);
+      console.log('🏢 Vendor Setup - Additional data:', additionalData);
+      console.log('🏢 Vendor Setup - Registration data:', registrationData);
+
       await authService.registerWithOTP(
         registrationData.phone,
         registrationData.otp,
