@@ -23,7 +23,7 @@ const getAPIBaseURLs = () => {
     
     // Fallback IPs - try current network first
     developmentURLs.push(
-      'http://10.156.69.217:3001',  // Current actual IP
+      'http://192.168.98.57:3001',  // Current actual IP
       'http://localhost:3001',     // Local fallback
     );
     

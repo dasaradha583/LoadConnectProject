@@ -211,7 +211,7 @@ export default function DriverDashboardScreen() {
                 <View style={styles.loadDetails}>
                     <View style={styles.detailRow}>
                         <Ionicons name="cube-outline" size={16} color="#666" />
-                        <Text style={styles.detailText}>{load.weight}kg • {load.vehicleTypeRequired}</Text>
+                        <Text style={styles.detailText}>{(load.weight / 1000).toFixed(2)} tons • {load.vehicleTypeRequired}</Text>
                     </View>
                     
                     <View style={styles.detailRow}>

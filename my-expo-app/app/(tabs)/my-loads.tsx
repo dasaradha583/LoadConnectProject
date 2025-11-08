@@ -259,10 +259,7 @@ export default function MyLoadsScreen() {
       
       <Text style={styles.loadDescription}>{item.description}</Text>
       <Text style={styles.loadWeight}>
-        Weight: {item.weight >= 1000 
-          ? `${(item.weight / 1000).toFixed(1)} tons`
-          : `${item.weight} kg`
-        }
+        Weight: {(item.weight / 1000).toFixed(2)} tons
       </Text>
       
       {/* Driver Count Display for Posted Loads (Vendor Only) */}
@@ -363,12 +360,6 @@ export default function MyLoadsScreen() {
             onPress={() => handleCancelLoad(item.id)}
           >
             <Text style={styles.cancelButtonText}>Cancel Load</Text>
-          </TouchableOpacity>
-        )}
-        
-        {item.status === 'delivered' && (
-          <TouchableOpacity style={styles.reviewButton}>
-            <Text style={styles.reviewButtonText}>Rate Driver</Text>
           </TouchableOpacity>
         )}
       </View>

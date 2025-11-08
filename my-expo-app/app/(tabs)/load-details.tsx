@@ -33,6 +33,7 @@ interface LoadDetails {
   contactDetails?: any;
   trackingInfo?: any;
   instructions: string[];
+  hasRated?: boolean;
   progress: {
     step: number;
     total: number;
@@ -99,7 +100,13 @@ export default function LoadDetailsScreen() {
       
       if (response.success && response.data) {
         console.log(`✅ Load details fetched successfully:`, response.data);
-        setLoadDetails(response.data as LoadDetails);
+        const loadData = response.data as LoadDetails;
+        setLoadDetails(loadData);
+        
+        // Set hasRated from backend response
+        if (loadData.hasRated !== undefined) {
+          setHasRated(loadData.hasRated);
+        }
       } else {
         throw new Error(response.message || 'Failed to fetch load details');
       }
@@ -194,6 +201,35 @@ export default function LoadDetailsScreen() {
       }
     }
   }, [loadDetails, user, id]);
+
+  // Auto-refresh for vendors to see real-time status updates
+  useEffect(() => {
+    if (!loadDetails || !user || !id) return;
+
+    // Only poll for vendors when load is active (not completed or cancelled)
+    const activeStatuses = ['posted', 'accepted', 'assigned', 'picked_up', 'in_transit'];
+    const shouldPoll = user.type === 'vendor' && 
+                       loadDetails.load?.status && 
+                       activeStatuses.includes(loadDetails.load.status);
+
+    if (!shouldPoll) return;
+
+    console.log('📊 Starting auto-refresh polling for vendor (every 15 seconds)');
+    
+    // Poll every 15 seconds for status updates
+    const pollInterval = setInterval(() => {
+      console.log('🔄 Auto-refreshing load details for vendor...');
+      fetchLoadDetails().catch(error => {
+        console.error('Auto-refresh failed:', error);
+      });
+    }, 15000); // 15 seconds
+
+    // Cleanup interval on unmount or when dependencies change
+    return () => {
+      console.log('⏹️ Stopping auto-refresh polling');
+      clearInterval(pollInterval);
+    };
+  }, [loadDetails, user, id, fetchLoadDetails]);
 
 
 
@@ -511,10 +547,7 @@ export default function LoadDetailsScreen() {
           <View style={styles.infoItem}>
             <Text style={styles.infoLabel}>Weight</Text>
             <Text style={styles.infoValue}>
-              {load.weight >= 1000 
-                ? `${(load.weight / 1000).toFixed(1)} tons`
-                : `${load.weight} kg`
-              }
+              {(load.weight / 1000).toFixed(2)} tons
             </Text>
           </View>
           <View style={styles.infoItem}>

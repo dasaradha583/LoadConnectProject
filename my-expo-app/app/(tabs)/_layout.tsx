@@ -174,6 +174,12 @@ export default function TabLayout() {
             href: null, // Hide from tab bar
           }}
         />
+        <Tabs.Screen
+          name="load-details"
+          options={{
+            href: null, // Hide from tab bar
+          }}
+        />
       </Tabs>
       
       <HamburgerMenu 

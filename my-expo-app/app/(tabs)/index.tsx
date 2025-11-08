@@ -1,7 +1,7 @@
 import AuthService from '@/services/auth';
 import LoadService from '@/services/load';
 import LocationService from '@/services/location';
-import { Driver, Load, Vendor } from '@/types/user';
+import { Driver, Load, Vendor, Admin, User } from '@/types/user';
 import { router } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
@@ -15,17 +15,29 @@ import {
 } from 'react-native';
 
 export default function HomeScreen() {
-  const [user, setUser] = useState<Driver | Vendor | any>(null);
+  const [user, setUser] = useState<Driver | Vendor | Admin | null>(null);
   const [nearbyLoads, setNearbyLoads] = useState<Load[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadsLoading, setLoadsLoading] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const initializeScreen = useCallback(async () => {
     try {
+      // Don't initialize if logging out
+      if (isLoggingOut) {
+        return;
+      }
+
       // Get current user first (this should be fast from local storage)
       const authService = AuthService.getInstance();
       const currentUser = await authService.getCurrentUser();
+      
+      // If no user found (e.g., after logout), stop here
+      if (!currentUser) {
+        setLoading(false);
+        return;
+      }
       
       // Redirect admin users to admin dashboard
       if (currentUser && 'type' in currentUser && currentUser.type === 'admin') {
@@ -50,7 +62,7 @@ export default function HomeScreen() {
       // Even on error, stop loading so user can see something
       setLoading(false);
     }
-  }, []);
+  }, [isLoggingOut]);
 
   useEffect(() => {
     initializeScreen();
@@ -58,6 +70,11 @@ export default function HomeScreen() {
 
   const requestLocationAndLoadNearbyLoads = async () => {
     try {
+      // Don't load if logging out or no user
+      if (isLoggingOut || !user) {
+        return;
+      }
+
       setLoadsLoading(true);
       const locationService = LocationService.getInstance();
       
@@ -105,12 +122,20 @@ export default function HomeScreen() {
           onPress: async () => {
             try {
               console.log('Starting logout process from Home...');
+              
+              // Set logging out flag to prevent any API calls
+              setIsLoggingOut(true);
+              
               const authService = AuthService.getInstance();
               
               // Stop location tracking first
               const locationService = LocationService.getInstance();
               locationService.stopLocationTracking();
               console.log('Location tracking stopped');
+              
+              // Clear user state immediately
+              setUser(null);
+              setNearbyLoads([]);
               
               // Perform logout
               await authService.logout();

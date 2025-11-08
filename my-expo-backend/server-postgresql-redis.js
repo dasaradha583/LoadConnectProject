@@ -2464,10 +2464,20 @@ app.get('/loads/:loadId/driver-location', authenticateToken, async (req, res) =>
   try {
     const { loadId } = req.params;
 
+    // Get vendor's profile ID first (Load.vendorId references vendors.id, not users.id)
+    const vendorProfile = await Vendor.findOne({ where: { userId: req.user.userId } });
+    
+    if (!vendorProfile) {
+      return res.status(403).json({
+        success: false,
+        message: 'Vendor profile not found'
+      });
+    }
+
     const load = await Load.findOne({
       where: { 
         id: loadId, 
-        vendorId: req.user.userId 
+        vendorId: vendorProfile.id // Use profile ID, not user ID
       },
       include: [{
         model: User,
@@ -2846,10 +2856,23 @@ app.post('/loads/:loadId/driver-status-update', authenticateToken, async (req, r
     }
 
     // Update load status
-    await load.update({ 
+    const updateFields = { 
       status,
       updatedAt: new Date()
-    });
+    };
+    
+    // Also update boolean flags based on status
+    if (status === 'picked_up') {
+      updateFields.isPickedUp = true;
+      updateFields.pickupConfirmedAt = updateFields.pickupConfirmedAt || new Date();
+    }
+    if (status === 'delivered') {
+      updateFields.isDropped = true;
+      updateFields.dropConfirmedAt = updateFields.dropConfirmedAt || new Date();
+      updateFields.completedAt = updateFields.completedAt || new Date();
+    }
+    
+    await load.update(updateFields);
 
     // Store status change event
     const statusEvent = {
@@ -3423,6 +3446,13 @@ app.get('/loads/:loadId/details', authenticateToken, async (req, res) => {
 
     responseData.progress = statusProgress[load.status] || statusProgress['posted'];
 
+    // Check if user has already rated for this load
+    const existingRating = await Rating.findOne({
+      where: { loadId: loadId }
+    });
+    
+    responseData.hasRated = !!existingRating;
+
     console.log(`📋 Load details accessed by ${userType} ${userId} for load ${loadId}`);
 
     res.json({
@@ -3510,15 +3540,23 @@ app.post('/loads/:loadId/rate-vendor', authenticateToken, async (req, res) => {
     const vendor = vendorProfile.user;
 
     // Calculate new average rating for vendor
+    // Note: totalOrders was already updated when load was delivered, so we use current value
     const currentRating = parseFloat(vendorProfile.rating) || 5.0;
     const totalOrders = vendorProfile.totalOrders || 0;
-    const newTotalOrders = totalOrders + 1;
-    const newRating = ((currentRating * totalOrders) + rating) / newTotalOrders;
+    
+    // Calculate weighted average using existing totalOrders
+    // For the first rating, totalOrders might be 0, so handle that case
+    let newRating;
+    if (totalOrders === 0) {
+      newRating = rating;
+    } else {
+      // Use totalOrders as the count of ratings (since each order can have one rating)
+      newRating = ((currentRating * (totalOrders - 1)) + rating) / totalOrders;
+    }
 
-    // Update vendor profile rating
+    // Update vendor profile rating only (totalOrders already updated on delivery)
     await vendorProfile.update({
-      rating: newRating,
-      totalOrders: newTotalOrders
+      rating: newRating
     });
 
     // Also update user rating for consistency
@@ -3546,7 +3584,7 @@ app.post('/loads/:loadId/rate-vendor', authenticateToken, async (req, res) => {
       success: true,
       data: {
         newRating: parseFloat(newRating.toFixed(2)),
-        totalOrders: newTotalOrders
+        totalOrders: totalOrders
       },
       message: 'Vendor rated successfully'
     });
@@ -3674,27 +3712,17 @@ app.post('/loads/:loadId/rate-driver', authenticateToken, async (req, res) => {
       rating: newAverageRating.toFixed(2)
     });
 
-    // Update Driver profile
-    // Get the load budget to add to earnings
-    const loadBudget = parseFloat(load.budget.toString()) || 0;
-    const newTotalEarnings = parseFloat(driverProfile.totalEarnings.toString()) + loadBudget;
-    
+    // Update Driver profile - only update rating, NOT stats (stats already updated on delivery)
     await driverProfile.update({
-      rating: newAverageRating.toFixed(2),
-      totalTrips: driverProfile.totalTrips + 1,
-      completedTrips: driverProfile.completedTrips + 1,
-      totalEarnings: newTotalEarnings
+      rating: newAverageRating.toFixed(2)
     });
-    console.log(`💰 Driver's earnings updated: +₹${loadBudget}, total=₹${newTotalEarnings}`);
+    console.log(`⭐ Driver's rating updated: ${newAverageRating.toFixed(2)} (based on ${totalRatings} ratings)`);
 
-    // Update vendor's total_orders and completed_orders (reuse vendorProfile from above)
-    if (vendorProfile) {
-      await vendorProfile.update({
-        totalOrders: vendorProfile.totalOrders + 1,
-        completedOrders: vendorProfile.completedOrders + 1
-      });
-      console.log(`📊 Vendor's stats updated: totalOrders=${vendorProfile.totalOrders + 1}, completedOrders=${vendorProfile.completedOrders + 1}`);
-    }
+    // Note: totalTrips, completedTrips, and totalEarnings were already updated when load was delivered
+    // We don't update them again here to avoid double counting
+
+    // Note: Vendor stats (totalOrders, completedOrders) were also already updated on delivery
+    // We don't update them again here to avoid double counting
 
     // Store rating in Redis for quick access
     await redisClient.setEx(
@@ -4272,8 +4300,17 @@ app.get('/loads/:loadId/live-tracking', authenticateToken, async (req, res) => {
     }
 
     // Check access permissions
-    const hasAccess = (userType === UserType.VENDOR && load.vendorId === userId) ||
-                     (userType === UserType.DRIVER && load.driverId === userId);
+    // Note: load.vendorId and load.driverId are profile IDs from vendors/drivers tables
+    // We need to get the user's profile ID to compare
+    let hasAccess = false;
+    
+    if (userType === UserType.VENDOR) {
+      const vendorProfile = await Vendor.findOne({ where: { userId: userId } });
+      hasAccess = vendorProfile && load.vendorId === vendorProfile.id;
+    } else if (userType === UserType.DRIVER) {
+      const driverProfile = await Driver.findOne({ where: { userId: userId } });
+      hasAccess = driverProfile && load.driverId === driverProfile.id;
+    }
 
     if (!hasAccess) {
       return res.status(403).json({

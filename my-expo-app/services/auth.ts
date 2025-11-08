@@ -1,10 +1,10 @@
-import { User, UserType, Driver, Vendor } from '@/types/user';
+import { User, UserType, Driver, Vendor, Admin } from '@/types/user';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ApiService } from './api';
 
 class AuthService {
   private static instance: AuthService;
-  private currentUser: Driver | Vendor | null = null;
+  private currentUser: Driver | Vendor | Admin | null = null;
   private apiService: ApiService;
 
   constructor() {
@@ -18,7 +18,7 @@ class AuthService {
     return AuthService.instance;
   }
 
-  async getCurrentUser(): Promise<Driver | Vendor | null> {
+  async getCurrentUser(): Promise<Driver | Vendor | Admin | null> {
     if (this.currentUser) return this.currentUser;
     
     try {
@@ -41,6 +41,8 @@ class AuthService {
           this.currentUser = user as Driver;
         } else if (user.type === 'vendor') {
           this.currentUser = user as Vendor;
+        } else if (user.type === 'admin') {
+          this.currentUser = user as Admin;
         }
         this.apiService.setAccessToken(accessToken);
         return this.currentUser;
@@ -52,7 +54,7 @@ class AuthService {
     return null;
   }
 
-  async setCurrentUser(user: Driver | Vendor): Promise<void> {
+  async setCurrentUser(user: Driver | Vendor | Admin): Promise<void> {
     try {
       this.currentUser = user;
       await AsyncStorage.setItem('currentUser', JSON.stringify(user));
@@ -278,7 +280,7 @@ class AuthService {
   }
 
   // Load complete user profile from backend
-  async loadFullProfile(): Promise<Driver | Vendor | null> {
+  async loadFullProfile(): Promise<Driver | Vendor | Admin | null> {
     try {
       const accessToken = await AsyncStorage.getItem('accessToken');
       if (!accessToken) {
@@ -294,7 +296,7 @@ class AuthService {
         const { user, driver, vendor, admin } = response.data;
         
         // Merge user with driver, vendor, or admin data
-        let mergedUser: Driver | Vendor | any;
+        let mergedUser: Driver | Vendor | Admin | null = null;
         
         if (user.type === 'driver' && driver) {
           mergedUser = {
@@ -323,7 +325,7 @@ class AuthService {
             verified: user.phoneVerified || false,
             createdAt: new Date(user.createdAt),
             updatedAt: new Date(user.updatedAt)
-          };
+          } as Admin;
         } else {
           return null;
         }
